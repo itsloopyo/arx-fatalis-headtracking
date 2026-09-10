@@ -1,0 +1,50 @@
+[workspace]
+name = "arx-fatalis-head-tracking"
+version = "0.0.0"
+description = "6DOF head tracking mod for Arx Fatalis using OpenTrack"
+license = "MIT"
+channels = ["conda-forge"]
+platforms = ["win-64"]
+
+[tasks]
+# Sync the cameraunlock-core submodule to its tracked branch.
+sync = "git submodule update --remote cameraunlock-core"
+
+# Configure CMake. arx.exe is a 32-bit DirectDraw/D3D7 binary, so the .asi must be x86.
+# No -G: let CMake pick whatever Visual Studio the machine has.
+setup = { cmd = """
+    powershell -Command "if (-not (Test-Path 'build/CMakeCache.txt')) { cmake -B build -A Win32 } else { Write-Host 'Build directory exists, skipping setup' -ForegroundColor Yellow }"
+""" }
+
+build = { cmd = "cmake --build build --config Debug", depends-on = ["setup"] }
+build-release = { cmd = "cmake --build build --config Release", depends-on = ["setup"] }
+
+# Build and run the native unit tests (INI sanitizers, Arx camera maths, cursor projection).
+test = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1" }
+
+# Build + deploy release next to arx.exe.
+install = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/deploy.ps1 Release", depends-on = ["build-release"] }
+
+# Remove the mod from the game directory. /y keeps it prompt-free under pixi (no TTY).
+uninstall = "scripts/uninstall.cmd /y"
+
+# Package the installer ZIP.
+package = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1", depends-on = ["build-release"] }
+
+clean = { cmd = """
+    powershell -Command "if (Test-Path build) { Remove-Item build -Recurse -Force }; if (Test-Path build-tests) { Remove-Item build-tests -Recurse -Force }; if (Test-Path bin) { Remove-Item bin -Recurse -Force }; Write-Host 'Build artifacts cleaned' -ForegroundColor Green"
+""" }
+
+release = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/release.ps1" }
+release-nightly = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/release-nightly.ps1" }
+
+conformance = { cmd = "powershell -ExecutionPolicy Bypass -File cameraunlock-core/scripts/conformance.ps1" }
+validate-manifest = { cmd = "node cameraunlock-core/scripts/validate-manifest.mjs" }
+validate-notices = { cmd = "node cameraunlock-core/scripts/validate-notices.mjs" }
+
+# Bump the vendored Ultimate ASI Loader. Manual; commit the result.
+update-deps = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/update-deps.ps1" }
+strip-loader = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/strip-loader-payload.ps1 -Path vendor/ultimate-asi-loader/dinput8.dll" }
+
+[dependencies]
+# No pixi dependencies - uses system CMake + Visual Studio.

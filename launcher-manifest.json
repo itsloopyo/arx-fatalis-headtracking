@@ -1,0 +1,18 @@
+{
+    "schema_version": 2,
+    "mod_info": {
+        "name": "ArxFatalisHeadTracking",
+        "version": "0.0.0",
+        "game_id": "arx-fatalis"
+    },
+    "strategy": "AsiLoader",
+    "delivery_mode": "install_cmd",
+
+    "files": [
+        { "source": "vendor/ultimate-asi-loader/dinput8.dll", "target": "dinput.dll" },
+        { "source": "plugins/ArxFatalisHeadTracking.asi", "target": "ArxFatalisHeadTracking.asi" }
+    ],
+
+    "runtime_requirements": [],
+    "dependencies": []
+}
