@@ -6,11 +6,11 @@
         "game_id": "arx-fatalis"
     },
     "strategy": "AsiLoader",
-    "delivery_mode": "install_cmd",
+    "delivery_mode": "manifest",
 
     "files": [
-        { "source": "vendor/ultimate-asi-loader/dinput8.dll", "target": "dinput.dll" },
-        { "source": "plugins/ArxFatalisHeadTracking.asi", "target": "ArxFatalisHeadTracking.asi" }
+        { "source": "vendor/ultimate-asi-loader/dinput8.dll", "target": "dinput.dll", "anchor": "exe_dir", "backup": true },
+        { "source": "plugins/ArxFatalisHeadTracking.asi", "target": "ArxFatalisHeadTracking.asi", "anchor": "exe_dir" }
     ],
 
     "runtime_requirements": [],
