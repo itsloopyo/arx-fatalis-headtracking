@@ -22,7 +22,7 @@ find them at runtime.
 | MemoryModule | `5f83e41` (inside Ultimate ASI Loader v9.7.2) | MPL-2.0 | Compiled into the vendored dinput8.dll |
 | d3d8to9 | `65870f2` (inside Ultimate ASI Loader v9.7.2) | BSD-2-Clause | Compiled into the vendored dinput8.dll |
 | MinHook | v1.3.4 | BSD-2-Clause | Compiled into `ArxFatalisHeadTracking.asi` |
-| cameraunlock-core | 6e57f7c64983903ab4fe49b006af59143bb52f55 | MIT | Compiled into `ArxFatalisHeadTracking.asi` |
+| cameraunlock-core | 2eded2c129ae256564dab23652bc6732eb47d8a9 | MIT | Compiled into `ArxFatalisHeadTracking.asi` |
 | OpenTrack | n/a | ISC | Not bundled; UDP protocol interoperability only |
 
 ---
@@ -743,7 +743,7 @@ Git submodule at `cameraunlock-core/`, compiled into `ArxFatalisHeadTracking.asi
 MIT licensed, reproduced here so the notices are complete.
 
 - Upstream: https://github.com/itsloopyo/cameraunlock-core
-- Pinned commit: `6e57f7c64983903ab4fe49b006af59143bb52f55`
+- Pinned commit: `2eded2c129ae256564dab23652bc6732eb47d8a9`
 - Licence: MIT
 - Bundled: yes, compiled into `ArxFatalisHeadTracking.asi` in the release ZIP
 
