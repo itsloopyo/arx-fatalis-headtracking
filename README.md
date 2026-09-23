@@ -14,13 +14,20 @@ An unofficial head tracking mod for Arx Fatalis that moves the view with your he
 ## Requirements
 
 - [Arx Fatalis](https://store.steampowered.com/app/1700/Arx_Fatalis/) on Steam, or the
-  Microsoft Store copy. The mod identifies the executable by its PE header and engages on
-  the Steam and Microsoft Store builds of 1.21. On any other copy it stays dormant, leaves
+  Xbox Game Pass copy. The mod identifies the executable by its PE header and engages on
+  the Steam and Xbox Game Pass builds of 1.21. On any other copy it stays dormant, leaves
   the game untouched, and says which way it differs in the log.
 - A tracking source that sends the OpenTrack UDP protocol: [OpenTrack](https://github.com/opentrack/opentrack) with a webcam or VR headset, or a phone app that speaks the protocol itself.
 - Windows 10 or 11. The mod loads into the game's 32-bit executable.
 
 ## Installation
+
+### Lopari
+
+Download [Lopari](https://lopari.app), choose **Arx Fatalis**, and click
+**Play with head tracking**.
+
+### Standalone Installer
 
 1. Download `ArxFatalisHeadTracking-v<version>-installer.zip` from the [Releases page](https://github.com/itsloopyo/arx-fatalis-headtracking/releases).
 2. Extract it anywhere.
@@ -41,9 +48,9 @@ or pass the folder as an argument:
 .\install.cmd "D:\Games\Arx Fatalis"
 ```
 
-### The Microsoft Store copy holds one game per language
+### The Xbox Game Pass copy holds one game per language
 
-The Microsoft Store build installs a complete copy of the game for each of its six
+The Xbox Game Pass build installs a complete copy of the game for each of its six
 languages, in `DE`, `EN`, `ES`, `FR`, `IT` and `RU` folders under
 `Arx Fatalis (PC)\Content`, and its launcher starts the one matching the language you
 play in. `install.cmd` deploys into `EN`.
