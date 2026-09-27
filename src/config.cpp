@@ -4,134 +4,21 @@
 #include "config.h"
 
 #include "logging.h"
+#include "legacy_config/legacy_config.h"
 
 #include "cameraunlock/config/ini_reader.h"
-#include "cameraunlock/config/value_guards.h"
 
 #include <windows.h>
-
-#include <cmath>
-#include <cstdarg>
-#include <cstdio>
-#include <string>
 
 namespace ArxHeadTracking {
 
 namespace {
 
-using cameraunlock::IniReader;
 using cameraunlock::IniWriter;
-namespace guards = cameraunlock::config;
-
-void LogSink(const char* fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    char buffer[512];
-    vsnprintf(buffer, sizeof(buffer), fmt, args);
-    va_end(args);
-    Log::Line("%s", buffer);
-}
 
 bool FileExists(const char* path) {
     const DWORD attrs = GetFileAttributesA(path);
     return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
-}
-
-// The sanitised reads below all share one of three bounds. Naming each bound
-// once keeps a key from quietly picking up a different range than its siblings.
-
-// A sensitivity is symmetric about zero: a negative one is a legitimate
-// inversion rather than a mistake.
-float ReadSensitivity(const IniReader& ini, const char* section, const char* key,
-                      float fallback) {
-    return guards::ReadFloatChecked(ini, section, key, fallback, -guards::kMaxSensitivity,
-                                    guards::kMaxSensitivity, LogSink);
-}
-
-// A position limit is a distance in metres, so zero is the floor - a negative
-// one would invert the processor's bounds and pin the lean at a fixed offset.
-float ReadPositionLimit(const IniReader& ini, const char* key, float fallback) {
-    return guards::ReadFloatChecked(ini, "Position", key, fallback, 0.0f,
-                                    guards::kMaxPositionLimit, LogSink);
-}
-
-// A 0-to-1 fraction: both smoothing values and the collision release ease.
-float ReadFraction(const IniReader& ini, const char* section, const char* key, float fallback) {
-    return guards::ReadFloatChecked(ini, section, key, fallback, 0.0f, 1.0f, LogSink);
-}
-
-// IniReader::ReadBool compares the WHOLE value against its accepted words, so
-// `CollisionEnabled=0 ; off while I test` matches none of them and the user's
-// edit is discarded with nothing in the log. Strip the comment first, the way
-// every numeric key here already does, and say so when what is left is still
-// not a yes or a no.
-bool ReadBoolChecked(const IniReader& ini, const char* section, const char* key,
-                     bool fallback) {
-    const std::string text = guards::ReadRawValue(ini, section, key);
-    if (text.empty()) return fallback;
-
-    if (text == "1" || text == "true" || text == "True" || text == "TRUE" ||
-        text == "yes" || text == "Yes" || text == "YES" ||
-        text == "on" || text == "On" || text == "ON") {
-        return true;
-    }
-    if (text == "0" || text == "false" || text == "False" || text == "FALSE" ||
-        text == "no" || text == "No" || text == "NO" ||
-        text == "off" || text == "Off" || text == "OFF") {
-        return false;
-    }
-    Log::Line("%s=%s is not a yes or no value; keeping %d.", key, text.c_str(),
-              fallback ? 1 : 0);
-    return fallback;
-}
-
-// True only when the WHOLE of @p text is a hex number, with an optional 0x.
-//
-// strtol parses a PREFIX, so IniReader::ReadHex answers `ToggleKey=End` with
-// 0x0E - an undefined virtual key that passes every validity test there is and
-// can never be pressed. Key NAMES are the spelling the fleet's config schema
-// uses for these two entries, so a user carrying that convention into this file
-// is the expected mistake rather than a far-fetched one, and it has to be
-// refused out loud.
-bool ParseHexStrict(const std::string& text, int& out) {
-    size_t i = (text.size() > 2 && text[0] == '0' && (text[1] == 'x' || text[1] == 'X')) ? 2 : 0;
-    if (i >= text.size()) return false;
-    int value = 0;
-    for (; i < text.size(); ++i) {
-        const char c = text[i];
-        int digit;
-        if (c >= '0' && c <= '9') {
-            digit = c - '0';
-        } else if (c >= 'a' && c <= 'f') {
-            digit = c - 'a' + 10;
-        } else if (c >= 'A' && c <= 'F') {
-            digit = c - 'A' + 10;
-        } else {
-            return false;
-        }
-        if (value > (0xFFFF - digit) / 16) return false;
-        value = value * 16 + digit;
-    }
-    out = value;
-    return true;
-}
-
-int ReadKeyChecked(const IniReader& ini, const char* key, int fallback) {
-    const std::string text = guards::ReadRawValue(ini, "Hotkeys", key);
-    if (text.empty()) return fallback;
-
-    int vk = 0;
-    if (!ParseHexStrict(text, vk)) {
-        Log::Line("%s=%s is not a hex key code; keeping 0x%02X. Write the code itself, as in "
-                  "0x23, rather than the key's name.", key, text.c_str(), fallback);
-        return fallback;
-    }
-    if (!guards::IsBindableVirtualKey(vk)) {
-        Log::Line("%s=0x%02X is not a key this mod can watch; keeping 0x%02X.",
-                  key, vk, fallback);
-        return fallback;
-    }
-    return vk;
 }
 
 void WriteDefaultIni(const char* path, const Config& d) {
@@ -260,85 +147,37 @@ bool Config::LoadOrCreate(const char* path) {
         WriteDefaultIni(path, Config{});
     }
 
-    IniReader ini;
-    if (!ini.Open(path)) {
+    legacy::Config l;
+    if (legacy::Read(path, l) == legacy::ReadStatus::Absent) {
         Log::Line("WARN: %s could not be opened; running on defaults.", path);
-        return true;
     }
 
-    const int port = ini.ReadInt("Network", "Port", udp_port);
-    if (port < kMinUdpPort || port > kMaxUdpPort) {
-        Log::Line("Port=%d is outside %d-%d; keeping %u.", port, kMinUdpPort, kMaxUdpPort,
-                  udp_port);
-    } else {
-        udp_port = static_cast<uint16_t>(port);
-    }
-
-    enabled_on_startup = ReadBoolChecked(ini, "General", "EnableOnStartup", enabled_on_startup);
-    move_crosshair = ReadBoolChecked(ini, "General", "MoveCrosshair", move_crosshair);
-    diagnostics = ReadBoolChecked(ini, "General", "Diagnostics", diagnostics);
-
-    // 0 is the whole of "leave the game alone", so it is let through rather than
-    // range-checked; anything else outside the bounds falls back to it and says
-    // so, because silently clamping a field of view to 110 is a stranger answer
-    // than rendering what the game always did.
-    //
-    // Parsed strictly rather than through IniReader::ReadFloat. Every float in
-    // this file goes through the guards; this one did not. Every comparison against a
-    // NaN is false, so `FieldOfView=nan` passed the range test here AND the
-    // `<= 0` gate in ApplyFieldOfView, and std::lround of it went into
-    // CURRENT_BASE_FOCAL - which the whole session's projection, sprite scale
-    // and culling frustum are built from. A prefix parse would have taken
-    // `75,95` for 75 just as quietly.
-    const std::string fovText = guards::ReadRawValue(ini, "General", "FieldOfView");
-    if (!fovText.empty()) {
-        float fov = 0.0f;
-        if (!guards::ParseFloatStrict(fovText, fov) || !std::isfinite(fov)) {
-            Log::Line("FieldOfView=%s is not a number; rendering the game's own field of view "
-                      "instead.", fovText.c_str());
-        } else if (fov != 0.0f && (fov < kMinFieldOfView || fov > kMaxFieldOfView)) {
-            Log::Line("FieldOfView=%.1f is outside %.0f-%.0f degrees; rendering the game's own "
-                      "field of view instead.", fov, kMinFieldOfView, kMaxFieldOfView);
-        } else {
-            field_of_view = fov;
-        }
-    }
-
-    sens_yaw = ReadSensitivity(ini, "Sensitivity", "YawSensitivity", sens_yaw);
-    sens_pitch = ReadSensitivity(ini, "Sensitivity", "PitchSensitivity", sens_pitch);
-    sens_roll = ReadSensitivity(ini, "Sensitivity", "RollSensitivity", sens_roll);
-
-    invert_yaw = ReadBoolChecked(ini, "Inversion", "InvertYaw", invert_yaw);
-    invert_pitch = ReadBoolChecked(ini, "Inversion", "InvertPitch", invert_pitch);
-    invert_roll = ReadBoolChecked(ini, "Inversion", "InvertRoll", invert_roll);
-
-    local_smoothing = ReadFraction(ini, "Smoothing", "LocalSmoothing", local_smoothing);
-    remote_smoothing = ReadFraction(ini, "Smoothing", "RemoteSmoothing", remote_smoothing);
-
-    position_enabled = ReadBoolChecked(ini, "Position", "PositionEnabled", position_enabled);
-    pos_sens_x = ReadSensitivity(ini, "Position", "PositionSensitivityX", pos_sens_x);
-    pos_sens_y = ReadSensitivity(ini, "Position", "PositionSensitivityY", pos_sens_y);
-    pos_sens_z = ReadSensitivity(ini, "Position", "PositionSensitivityZ", pos_sens_z);
-    pos_limit_x = ReadPositionLimit(ini, "PositionLimitX", pos_limit_x);
-    pos_limit_y = ReadPositionLimit(ini, "PositionLimitY", pos_limit_y);
-    pos_limit_z = ReadPositionLimit(ini, "PositionLimitZ", pos_limit_z);
-    pos_limit_z_back = ReadPositionLimit(ini, "PositionLimitZBack", pos_limit_z_back);
-
-    collision_enabled = ReadBoolChecked(ini, "Position", "CollisionEnabled", collision_enabled);
-    // The standoff is in Arx units, so its ceiling is centimetres rather than
-    // the metres the position limits are in.
-    // The floor is the engine's near clip, not zero. A standoff at or below it
-    // stops the eye short of the wall and has the wall culled anyway, so the
-    // player still sees through it while the log reports collision as on - the
-    // exact complaint the clamp exists to answer, with an extra step.
-    collision_radius = guards::ReadFloatChecked(ini, "Position", "CollisionRadius",
-                                                collision_radius, kMinCollisionRadius,
-                                                kMaxCollisionRadius, LogSink);
-    collision_release_smoothing =
-        ReadFraction(ini, "Position", "CollisionReleaseSmoothing", collision_release_smoothing);
-
-    vk_toggle = ReadKeyChecked(ini, "ToggleKey", vk_toggle);
-    vk_cycle_mode = ReadKeyChecked(ini, "CycleTrackingModeKey", vk_cycle_mode);
+    udp_port = l.udp_port;
+    enabled_on_startup = l.enabled_on_startup;
+    move_crosshair = l.move_crosshair;
+    diagnostics = l.diagnostics;
+    field_of_view = l.field_of_view;
+    sens_yaw = l.sens_yaw;
+    sens_pitch = l.sens_pitch;
+    sens_roll = l.sens_roll;
+    invert_yaw = l.invert_yaw;
+    invert_pitch = l.invert_pitch;
+    invert_roll = l.invert_roll;
+    local_smoothing = l.local_smoothing;
+    remote_smoothing = l.remote_smoothing;
+    position_enabled = l.position_enabled;
+    pos_sens_x = l.pos_sens_x;
+    pos_sens_y = l.pos_sens_y;
+    pos_sens_z = l.pos_sens_z;
+    pos_limit_x = l.pos_limit_x;
+    pos_limit_y = l.pos_limit_y;
+    pos_limit_z = l.pos_limit_z;
+    pos_limit_z_back = l.pos_limit_z_back;
+    collision_enabled = l.collision_enabled;
+    collision_radius = l.collision_radius;
+    collision_release_smoothing = l.collision_release_smoothing;
+    vk_toggle = l.vk_toggle;
+    vk_cycle_mode = l.vk_cycle_mode;
 
     return true;
 }

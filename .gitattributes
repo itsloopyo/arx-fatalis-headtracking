@@ -45,3 +45,6 @@
 *.asi binary
 *.pdb binary
 *.lib binary
+
+# The differential test's inputs are byte-exact, CRLF included.
+tests/config_differential/data/** -text
