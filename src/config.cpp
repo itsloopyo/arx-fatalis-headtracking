@@ -8,6 +8,8 @@
 #include "cameraunlock/input/key_bindings.h"
 #include "cameraunlock/tracking/tracking_mode.h"
 
+#include <windows.h>
+
 #include <string>
 #include <string_view>
 #include <utility>
@@ -61,11 +63,51 @@ std::string KeyList(int vk, char letter, const char* key, std::vector<DroppedVal
     return code.empty() ? chord : code + ", " + chord;
 }
 
+// @p wide in the active ANSI code page, or empty when the code page cannot hold it. Copied from
+// the dev build's path_utils.cpp: WideCharToMultiByte puts a '?' in place of a character the
+// code page lacks and still reports success, so the used-default flag is what tells.
+std::string ToAnsiLossless(const std::wstring& wide) {
+    if (wide.empty()) return {};
+    const bool acpIsUtf8 = GetACP() == CP_UTF8;
+    const DWORD flags = acpIsUtf8 ? 0u : WC_NO_BEST_FIT_CHARS;
+    BOOL usedDefault = FALSE;
+    BOOL* const usedDefaultOut = acpIsUtf8 ? nullptr : &usedDefault;
+    const int needed = WideCharToMultiByte(CP_ACP, flags, wide.c_str(), -1, nullptr, 0, nullptr, usedDefaultOut);
+    if (needed <= 0) return {};
+    std::string narrow(static_cast<size_t>(needed - 1), '\0');
+    if (WideCharToMultiByte(CP_ACP, flags, wide.c_str(), -1, &narrow[0], needed, nullptr, usedDefaultOut) <= 0 ||
+        usedDefault) {
+        return {};
+    }
+    return narrow;
+}
+
+// The ANSI path the dev build opened the legacy file by (GetModulePath in its path_utils.cpp):
+// the folder's name in the ANSI code page, or, where the code page cannot hold it, the folder's
+// 8.3 short name, then the file name. Empty where neither names the folder or the path passes
+// MAX_PATH; the dev build did not start there, so no build ever read a file in that folder.
+std::string DevBuildAnsiPath(const std::wstring& path) {
+    const size_t slash = path.find_last_of(L"\\/");
+    if (slash == std::wstring::npos) return {};
+    const std::wstring dir = path.substr(0, slash + 1);
+    const std::string name = ToAnsiLossless(path.substr(slash + 1));
+    std::string ansiDir = ToAnsiLossless(dir);
+    if (ansiDir.empty()) {
+        wchar_t shortDir[MAX_PATH];
+        const DWORD written = GetShortPathNameW(dir.c_str(), shortDir, MAX_PATH);
+        if (written == 0 || written >= MAX_PATH) return {};
+        std::wstring shortened(shortDir, written);
+        if (shortened.back() != L'\\' && shortened.back() != L'/') shortened.push_back(L'\\');
+        ansiDir = ToAnsiLossless(shortened);
+        if (ansiDir.empty()) return {};
+    }
+    if (name.empty() || ansiDir.size() + name.size() + 1 > MAX_PATH) return {};
+    return ansiDir + name;
+}
+
 ImportResult Import(const LegacyInput& input, Config& out) {
-    // The dev build opened the file by the ANSI path GetModuleFileNameA gave it, which is the
-    // owner's ANSI form of the same path.
     legacy::Config c;
-    const legacy::ReadStatus read = legacy::Read(input.ansi_path.c_str(), c);
+    const legacy::ReadStatus read = legacy::Read(DevBuildAnsiPath(input.path).c_str(), c);
     const legacy::Config shipped;
 
     std::vector<DroppedValue> dropped;

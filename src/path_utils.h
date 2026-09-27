@@ -7,16 +7,14 @@
 
 namespace ArxHeadTracking {
 
-std::string GetModulePath(const char* filename);
-
-// Wide variant for APIs that take wide paths (core logging::Open). Reads the module
-// path with the WIDE API rather than converting the ANSI one: GetModuleFileNameA
-// renders anything the active ANSI codepage cannot represent as '?', which turns a
-// non-ASCII install path into a directory that does not exist.
+// The path of @p filename in the folder this module was loaded from. Reads the module
+// path with the WIDE API rather than converting an ANSI one: GetModuleFileNameA renders
+// anything the active ANSI codepage cannot represent as '?', which turns a non-ASCII
+// install path into a directory that does not exist.
 //
-// Both variants return an empty string rather than a path the ANSI file APIs cannot open:
-// a module path GetModuleFileName truncated into its buffer, and a directory that fits
-// MAX_PATH but no longer does once the filename is on the end of it.
+// Returns an empty string for a module path GetModuleFileName truncated into its buffer,
+// and for a directory that fits MAX_PATH but no longer does once the filename is on the
+// end of it.
 std::wstring GetModulePathW(const char* filename);
 
 }  // namespace ArxHeadTracking

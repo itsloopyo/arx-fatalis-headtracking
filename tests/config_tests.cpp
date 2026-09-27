@@ -258,23 +258,27 @@ void TestFieldOfViewRefusesWhatNoFocalAnswers() {
     }
 }
 
-// The dev build built its path from GetModuleFileNameA, so in a folder the ANSI code page cannot
-// name it looked for a file that does not exist and ran on its defaults. The import reads the same
-// ANSI path, so such a player migrates to the defaults, and ArxFatalisHeadTracking.ini stays as it
-// was.
+// The dev build named its folder in the ANSI code page, and where the code page could not hold
+// the name, by the folder's 8.3 short name, which is ASCII. The import opens the legacy file by
+// the same path, so a folder the code page cannot name imports the file where the volume keeps
+// short names, and imports nothing where it does not, since the dev build did not start there.
+// ArxFatalisHeadTracking.ini stays as it was either way.
 void TestAFolderTheCodepageCannotNameImportsAsTheDevBuildReadIt() {
     const Scratch s(L"arx-\x4E2D");
     const std::string legacyBytes = "[Network]\r\nPort=5000\r\n";
     WriteBytes(s.LegacyPath(), legacyBytes);
     const auto loaded = cfg::ConfigOwner<Config>(s.Options()).Load();
-    if (GetACP() == CP_UTF8) {
-        std::printf("note: the ANSI code page is UTF-8 here, so the folder has an ANSI name\n");
-        Check(loaded.status == cfg::ConfigLoadStatus::Migrated && loaded.config.udp_port == 5000,
-              "with a UTF-8 code page the file is read");
-        return;
-    }
-    Check(loaded.status == cfg::ConfigLoadStatus::Migrated, "a file the dev build could not find migrates to its defaults");
-    Check(loaded.config.udp_port == 4242, "the port is the dev build's default, as that build ran");
+
+    wchar_t shortDir[MAX_PATH];
+    const DWORD written = GetShortPathNameW(s.game.c_str(), shortDir, MAX_PATH);
+    bool asciiShortName = written > 0 && written < MAX_PATH;
+    for (DWORD i = 0; asciiShortName && i < written; ++i) asciiShortName = shortDir[i] < 0x80;
+    const bool devBuildRead = GetACP() == CP_UTF8 || asciiShortName;
+    std::printf("note: the dev build %s this folder's legacy file (%s)\n", devBuildRead ? "read" : "could not read",
+                GetACP() == CP_UTF8 ? "the ANSI code page is UTF-8" : asciiShortName ? "by its short name" : "no short name");
+
+    Check(loaded.status == cfg::ConfigLoadStatus::Migrated, "a folder the code page cannot name migrates");
+    Check(loaded.config.udp_port == (devBuildRead ? 5000 : 4242), "the port is what the dev build read there");
     Check(ReadBytes(s.LegacyPath()) == legacyBytes, "ArxFatalisHeadTracking.ini stays as it was");
 }
 
