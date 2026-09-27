@@ -9,7 +9,6 @@ An unofficial head tracking mod for Arx Fatalis that moves the view with your he
 - **Decoupled look and aim** - your head moves the view while the mouse still controls where you aim
 - **6DOF tracking** - yaw, pitch and roll plus positional lean, peek and duck
 - **Works with any OpenTrack compatible tracker** - free options available for PC, iOS and Android
-- **Cursor sits on the aim point** - the mark you select with follows the shot, not your head
 
 ## Requirements
 
