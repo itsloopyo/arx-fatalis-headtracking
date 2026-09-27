@@ -152,7 +152,8 @@ look down, so pressing one of those does both things at once. It also binds
 you into both for as long as you hold it. The cycle chord is `Ctrl+Shift+J`
 rather than the `Ctrl+Shift+G` other mods use because `G` is Arx's drink-mana-
 potion key, and `J` is the next key in the same cluster that Arx leaves alone.
-Every key in both sets can be changed: the mod's with `ToggleKey` and
+`CycleTrackingModeKey` in `CameraUnlock.ini` holds these keys for this game and
+does not follow `Defaults.ini`. Every key in both sets can be changed: the mod's with `ToggleKey` and
 `CycleTrackingModeKey` in `CameraUnlock.ini`, the game's in Options.
 
 The tracking mode you pick is saved in `CameraUnlock.ini` and comes back the next

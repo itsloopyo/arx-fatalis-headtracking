@@ -12,7 +12,7 @@
   - `MoveCrosshair=0`. The crosshair always follows your aim now.
 - An older version of the mod reads `ArxFatalisHeadTracking.ini` and never reads `CameraUnlock.ini`, so a setting you change after updating is not in `ArxFatalisHeadTracking.ini`.
 - Deleting only `CameraUnlock.ini` makes the next start read `ArxFatalisHeadTracking.ini` again. To go back to the defaults, replace everything in `CameraUnlock.ini` with the defaults the README shows. Every setting they set to `default` then follows `Defaults.ini`.
-- Hotkeys are written as key names, and each hotkey lists every key that triggers it, the Ctrl+Shift chord included: `ToggleKey=End, Ctrl+Shift+Y`. The cycle hotkey keeps `Ctrl+Shift+J`, because `G` is Arx's drink-mana-potion key: `CycleTrackingModeKey=PageUp, Ctrl+Shift+J`.
+- Hotkeys are written as key names, and each hotkey lists every key that triggers it, the Ctrl+Shift chord included: `ToggleKey=End, Ctrl+Shift+Y`. The cycle hotkey keeps `Ctrl+Shift+J`, because `G` is Arx's drink-mana-potion key: `CycleTrackingModeKey=PageUp, Ctrl+Shift+J`. Other mods in this series use `Ctrl+Shift+G`, so in this mod the row keeps these keys and does not follow `Defaults.ini`.
 - Several settings have the fleet's names: `[Network] Port` is `UdpPort`, and `CollisionRadius` is `CollisionMargin`, still in Arx units from 2 to 200. The one vertical lean limit is now two, `PositionLimitY` upward and `PositionLimitYDown` downward, and an old `PositionLimitY` is imported into both.
 - The tracking mode the mode hotkey picks is saved in `CameraUnlock.ini` and comes back at the next start.
 - Uninstalling leaves `CameraUnlock.ini` and `ArxFatalisHeadTracking.ini` in place, so a reinstall keeps your settings. Earlier versions removed `ArxFatalisHeadTracking.ini`.

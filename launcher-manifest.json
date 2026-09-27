@@ -14,5 +14,15 @@
     ],
 
     "runtime_requirements": [],
-    "dependencies": []
+    "dependencies": [],
+
+    "config": {
+        "path": "CameraUnlock.ini",
+        "anchor": "exe_dir",
+        "legacy_source": "ArxFatalisHeadTracking.ini",
+        "canonical_since": "0.0.1",
+        "per_game": {
+            "CycleTrackingModeKey": "PageUp, Ctrl+Shift+J"
+        }
+    }
 }
