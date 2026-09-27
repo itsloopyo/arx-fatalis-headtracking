@@ -45,14 +45,14 @@ public:
     bool IsReceiving() const { return m_receiver.IsReceiving(); }
 
     void ToggleEnabled();
-    void CycleTrackingMode();
+    // Returns the mode it moved to, for the caller to save.
+    cameraunlock::TrackingMode CycleTrackingMode();
 
 private:
     // A frame longer than this is a stall - a load, a save, an alt-tab - and
     // feeding its real duration to the smoothing would snap the view.
     static constexpr float kMaxFrameDtSec = 0.25f;
 
-    void ConfigureRotation();
     void ConfigurePosition();
     void ConfigureSmoothing();
 

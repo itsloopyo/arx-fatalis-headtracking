@@ -3,183 +3,202 @@
 
 #include "config.h"
 
-#include "logging.h"
 #include "legacy_config/legacy_config.h"
 
-#include "cameraunlock/config/ini_reader.h"
+#include "cameraunlock/input/key_bindings.h"
+#include "cameraunlock/tracking/tracking_mode.h"
 
-#include <windows.h>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 namespace ArxHeadTracking {
 
 namespace {
 
-using cameraunlock::IniWriter;
+namespace cfg = cameraunlock::config;
+using cfg::DroppedValue;
+using cfg::DropRule;
+using cfg::ImportResult;
+using cfg::LegacyFollowsDefaultsIni;
+using cfg::LegacyInput;
+using cfg::LegacyPoseShaping;
+using cfg::PoseShapingValue;
+using cfg::schema::Concept;
+using cameraunlock::input::KeyBinding;
+using cameraunlock::input::KeyModifiers;
 
-bool FileExists(const char* path) {
-    const DWORD attrs = GetFileAttributesA(path);
-    return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
-}
+// 0, the game's own field of view, or a chosen one from kMinFieldOfView to kMaxFieldOfView.
+// Between 0 and kMinFieldOfView no focal answers, so those values are refused like any value
+// outside the range.
+class FieldOfViewCodec {
+public:
+    using Value = float;
 
-void WriteDefaultIni(const char* path, const Config& d) {
-    IniWriter w;
-    if (!w.Open(path)) {
-        Log::Line("WARN: could not create %s. The defaults are in use for this session and "
-                  "nothing will persist - the game directory is not writable by this account.",
-                  path);
-        return;
+    cfg::CodecParseResult<float> Parse(std::string_view text) const {
+        cfg::CodecParseResult<float> read = inner_.Parse(text);
+        if (!read.ok() || (read.value != 0.0f && read.value < kMinFieldOfView)) {
+            return {0.0f, "0, or a number from 40 to 110"};
+        }
+        return read;
     }
 
-    w.WriteComment(" Arx Fatalis Head Tracking");
-    w.WriteComment("");
-    w.WriteComment(" Head tracking moves the view. The mouse still turns the character and");
-    w.WriteComment(" still decides where arrows, spells and sword swings go, so what you see");
-    w.WriteComment(" and what you aim at come apart. The cursor is redrawn on the point you");
-    w.WriteComment(" are actually aiming at, and picks up whatever is under it there.");
-    w.WriteComment("");
-    w.WriteComment(" Centre your head in the tracker (OpenTrack's Center bind, or the CENTER");
-    w.WriteComment(" button in a phone app). This mod keeps no centre of its own.");
-    w.WriteBlankLine();
+    std::string Render(float value) const { return inner_.Render(value); }
 
-    w.WriteSection("Network");
-    w.WriteComment(" UDP port to listen on. 4242 is what OpenTrack sends to by default.");
-    w.WriteInt("Port", d.udp_port);
-    w.WriteBlankLine();
+    bool Equal(float a, float b) const { return inner_.Equal(a, b); }
 
-    w.WriteSection("General");
-    w.WriteComment(" Whether tracking is live as soon as the game starts.");
-    w.WriteBool("EnableOnStartup", d.enabled_on_startup);
-    w.WriteComment(" Move the game's cursor onto the point you are aiming at. Turning this");
-    w.WriteComment(" off leaves the cursor where the game puts it, which is wherever your");
-    w.WriteComment(" head is pointed rather than where your character is.");
-    w.WriteBool("MoveCrosshair", d.move_crosshair);
-    w.WriteComment(" Vertical field of view in degrees. Arx has no setting of its own and");
-    w.WriteComment(" renders 75.95 degrees vertically, which widens horizontally on a wide");
-    w.WriteComment(" monitor. 0 leaves the game's own alone. 40 to 110 can be set, and the");
-    w.WriteComment(" view still narrows when you draw a bow either way.");
-    w.WriteDouble("FieldOfView", d.field_of_view);
-    w.WriteComment(" Write a line a second to ArxFatalisHeadTracking.log naming the camera the");
-    w.WriteComment(" shot leaves from, the camera the frame is drawn through and the point the");
-    w.WriteComment(" cursor is placed on. Only useful for reporting a problem.");
-    w.WriteBool("Diagnostics", d.diagnostics);
-    w.WriteBlankLine();
+private:
+    cfg::FloatCodec inner_{0.0f, kMaxFieldOfView};
+};
 
-    w.WriteSection("Sensitivity");
-    w.WriteComment(" Shape the pose in your tracker, not here, so one profile behaves the");
-    w.WriteComment(" same in every game. These stay at 1.0 unless you have a reason.");
-    w.WriteDouble("YawSensitivity", d.sens_yaw);
-    w.WriteDouble("PitchSensitivity", d.sens_pitch);
-    w.WriteDouble("RollSensitivity", d.sens_roll);
-    w.WriteBlankLine();
+// A legacy hotkey code and the Ctrl+Shift chord the dev build always registered beside it, as one
+// key list: the code's binding (none for a code no hotkey can hold, N1 and N3), then the chord.
+std::string KeyList(int vk, char letter, const char* key, std::vector<DroppedValue>& dropped) {
+    const std::string code = cfg::LegacyVirtualKeyToBindings(vk, "Hotkeys", key, dropped);
+    const std::string chord = cameraunlock::input::FormatKeyBindings(
+        std::vector<KeyBinding>{{KeyModifiers::kCtrl | KeyModifiers::kShift, letter}});
+    return code.empty() ? chord : code + ", " + chord;
+}
 
-    w.WriteSection("Inversion");
-    w.WriteComment(" Fix a mirrored axis in your tracker where you can, so it is right in");
-    w.WriteComment(" every game at once.");
-    w.WriteBool("InvertYaw", d.invert_yaw);
-    w.WriteBool("InvertPitch", d.invert_pitch);
-    w.WriteBool("InvertRoll", d.invert_roll);
-    w.WriteBlankLine();
+ImportResult Import(const LegacyInput& input, Config& out) {
+    // The dev build opened the file by the ANSI path GetModuleFileNameA gave it, which is the
+    // owner's ANSI form of the same path.
+    legacy::Config c;
+    const legacy::ReadStatus read = legacy::Read(input.ansi_path.c_str(), c);
+    const legacy::Config shipped;
 
-    w.WriteSection("Smoothing");
-    w.WriteComment(" Which of these applies is decided per connection, by the address the");
-    w.WriteComment(" packets arrive from. Only loopback (127.0.0.1) counts as local: a");
-    w.WriteComment(" tracker running on this same PC but sending to the machine's LAN");
-    w.WriteComment(" address is treated as remote.");
-    w.WriteComment(" Both cover rotation and position. 0 is no smoothing at all.");
-    w.WriteDouble("LocalSmoothing", d.local_smoothing);
-    w.WriteDouble("RemoteSmoothing", d.remote_smoothing);
-    w.WriteBlankLine();
+    std::vector<DroppedValue> dropped;
+    std::vector<PoseShapingValue> shaping;
 
-    w.WriteSection("Position");
-    w.WriteComment(" Positional (6DOF) tracking - leaning. Limits are in metres.");
-    w.WriteBool("PositionEnabled", d.position_enabled);
-    w.WriteComment(" As above: shape the pose in your tracker. X is side to side, Y is up");
-    w.WriteComment(" and down, Z is forward and back.");
-    w.WriteDouble("PositionSensitivityX", d.pos_sens_x);
-    w.WriteDouble("PositionSensitivityY", d.pos_sens_y);
-    w.WriteDouble("PositionSensitivityZ", d.pos_sens_z);
-    w.WriteComment(" How far the view may move from where the game put it, in metres.");
-    w.WriteDouble("PositionLimitX", d.pos_limit_x);
-    w.WriteDouble("PositionLimitY", d.pos_limit_y);
-    w.WriteComment(" Forward gets more room than backward so pulling back does not put the");
-    w.WriteComment(" view inside your own body.");
-    w.WriteDouble("PositionLimitZ", d.pos_limit_z);
-    w.WriteDouble("PositionLimitZBack", d.pos_limit_z_back);
-    w.WriteBlankLine();
+    out.udp_port = c.udp_port;
+    out.enable_on_startup = c.enabled_on_startup;
 
-    w.WriteComment(" Stop a lean pushing the view through a wall. The trace uses the game's");
-    w.WriteComment(" own level collision. CollisionRadius is how far off a surface the eye is");
-    w.WriteComment(" held, in Arx units (1 unit = 1 cm), and must stay above the engine's");
-    w.WriteComment(" 1-unit near clip or the wall is culled and you see through it anyway.");
-    w.WriteBool("CollisionEnabled", d.collision_enabled);
-    w.WriteDouble("CollisionRadius", d.collision_radius);
-    w.WriteDouble("CollisionReleaseSmoothing", d.collision_release_smoothing);
-    w.WriteBlankLine();
+    // [Position] PositionEnabled chose only the startup mode: the cycle key reached every mode
+    // either way.
+    const cameraunlock::TrackingModeChannels mode = cameraunlock::EncodeTrackingMode(
+        c.position_enabled ? cameraunlock::TrackingMode::RotationAndPosition
+                           : cameraunlock::TrackingMode::RotationOnly);
+    out.rotation_enabled = mode.rotation_enabled;
+    out.position_enabled = mode.position_enabled;
 
-    w.WriteSection("Hotkeys");
-    w.WriteComment(" Virtual key codes. Every action also has a Ctrl+Shift chord for");
-    w.WriteComment(" keyboards with no navigation cluster.");
-    w.WriteComment(" End      / Ctrl+Shift+Y : tracking on or off");
-    w.WriteComment(" Page Up  / Ctrl+Shift+J : cycle 6DOF -> rotation only -> position only");
-    w.WriteComment("");
-    w.WriteComment(" Both sets collide with something Arx already uses; pick whichever you");
-    w.WriteComment(" mind less. End, Page Up and Page Down are centre view, look up and look");
-    w.WriteComment(" down. Ctrl is magic mode and Shift is stealth mode, so holding a chord");
-    w.WriteComment(" enters both for as long as you hold it.");
-    w.WriteComment(" There is no recenter key. Centre your head in the tracker.");
-    w.WriteHex("ToggleKey", d.vk_toggle);
-    w.WriteHex("CycleTrackingModeKey", d.vk_cycle_mode);
-    w.Close();
+    out.local_smoothing = c.local_smoothing;
+    out.remote_smoothing = c.remote_smoothing;
 
-    Log::Line("Wrote default config to %s", path);
+    // The old file had one vertical limit, which the old runtime applied both ways.
+    out.position.limit_x = c.pos_limit_x;
+    out.position.limit_y = c.pos_limit_y;
+    out.position.limit_y_down = c.pos_limit_y;
+    out.position.limit_z = c.pos_limit_z;
+    out.position.limit_z_back = c.pos_limit_z_back;
+
+    out.collision_enabled = c.collision_enabled;
+    out.lean_clamp.skin = c.collision_radius;
+    out.lean_clamp.release_smoothing = c.collision_release_smoothing;
+
+    out.field_of_view = c.field_of_view;
+    out.diagnostics = c.diagnostics;
+
+    // Every sensitivity and inversion shipped at identity, so nothing folds and a value the player
+    // changed is dropped.
+    LegacyPoseShaping(c.sens_yaw, shipped.sens_yaw, "Sensitivity", "YawSensitivity", shaping, dropped);
+    LegacyPoseShaping(c.sens_pitch, shipped.sens_pitch, "Sensitivity", "PitchSensitivity", shaping, dropped);
+    LegacyPoseShaping(c.sens_roll, shipped.sens_roll, "Sensitivity", "RollSensitivity", shaping, dropped);
+    LegacyPoseShaping(c.invert_yaw, shipped.invert_yaw, "Inversion", "InvertYaw", shaping, dropped);
+    LegacyPoseShaping(c.invert_pitch, shipped.invert_pitch, "Inversion", "InvertPitch", shaping, dropped);
+    LegacyPoseShaping(c.invert_roll, shipped.invert_roll, "Inversion", "InvertRoll", shaping, dropped);
+    LegacyPoseShaping(c.pos_sens_x, shipped.pos_sens_x, "Position", "PositionSensitivityX", shaping, dropped);
+    LegacyPoseShaping(c.pos_sens_y, shipped.pos_sens_y, "Position", "PositionSensitivityY", shaping, dropped);
+    LegacyPoseShaping(c.pos_sens_z, shipped.pos_sens_z, "Position", "PositionSensitivityZ", shaping, dropped);
+
+    // The crosshair always follows the aim now.
+    if (!c.move_crosshair) dropped.push_back({DropRule::Reticle, "General", "MoveCrosshair", "false"});
+
+    out.toggle_key_name = KeyList(c.vk_toggle, 'Y', "ToggleKey", dropped);
+    out.cycle_tracking_mode_key_name = KeyList(c.vk_cycle_mode, 'J', "CycleTrackingModeKey", dropped);
+
+    // A row still at what the dev build ran on with no file is no player's choice, so it follows
+    // Defaults.ini. The chords were fixed in code, so each hotkey's code decides alone.
+    // CycleTrackingModeKey is PerGame and CollisionMargin is not global, so neither is given.
+    LegacyFollowsDefaultsIni follows;
+    follows.Setting(Concept::UdpPort, c.udp_port, shipped.udp_port);
+    follows.Setting(Concept::EnableOnStartup, c.enabled_on_startup, shipped.enabled_on_startup);
+    follows.TrackingMode(c.position_enabled, shipped.position_enabled);
+    follows.Setting(Concept::LocalSmoothing, c.local_smoothing, shipped.local_smoothing);
+    follows.Setting(Concept::RemoteSmoothing, c.remote_smoothing, shipped.remote_smoothing);
+    follows.Setting(Concept::PositionLimitX, c.pos_limit_x, shipped.pos_limit_x);
+    follows.Setting(Concept::PositionLimitY, c.pos_limit_y, shipped.pos_limit_y);
+    follows.Setting(Concept::PositionLimitYDown, c.pos_limit_y, shipped.pos_limit_y);
+    follows.Setting(Concept::PositionLimitZ, c.pos_limit_z, shipped.pos_limit_z);
+    follows.Setting(Concept::PositionLimitZBack, c.pos_limit_z_back, shipped.pos_limit_z_back);
+    follows.Setting(Concept::CollisionEnabled, c.collision_enabled, shipped.collision_enabled);
+    follows.Setting(Concept::CollisionReleaseSmoothing, c.collision_release_smoothing,
+                    shipped.collision_release_smoothing);
+    follows.Setting(Concept::ToggleKey, c.vk_toggle, shipped.vk_toggle);
+
+    return read == legacy::ReadStatus::Absent
+               ? ImportResult::Absent(std::move(dropped), std::move(shaping), follows.Concepts())
+               : ImportResult::Imported(std::move(dropped), std::move(shaping), follows.Concepts());
 }
 
 }  // namespace
 
-bool Config::LoadOrCreate(const char* path) {
-    if (!path || !*path) {
-        Log::Line("ERROR: could not resolve the directory this mod was loaded from, so there "
-                  "is nowhere to read or write the config.");
-        return false;
-    }
+cfg::ConfigTable<Config> MakeConfigTable() {
+    cfg::ConfigTable<Config> table{Config{}};
+    table.Concept<Concept::UdpPort>(&Config::udp_port)
+        .Concept<Concept::EnableOnStartup>(&Config::enable_on_startup)
+        .Concept<Concept::RotationEnabled>(&Config::rotation_enabled)
+        .Writable()
+        .Concept<Concept::LocalSmoothing>(&Config::local_smoothing)
+        .Concept<Concept::RemoteSmoothing>(&Config::remote_smoothing)
+        .Concept<Concept::PositionEnabled>(&Config::position_enabled)
+        .Writable()
+        .Concept<Concept::PositionLimitX>([](const Config& c) { return c.position.limit_x; },
+                                          [](Config& c, float v) { c.position.limit_x = v; })
+        .Concept<Concept::PositionLimitY>([](const Config& c) { return c.position.limit_y; },
+                                          [](Config& c, float v) { c.position.limit_y = v; })
+        .Concept<Concept::PositionLimitYDown>([](const Config& c) { return c.position.limit_y_down; },
+                                              [](Config& c, float v) { c.position.limit_y_down = v; })
+        .Concept<Concept::PositionLimitZ>([](const Config& c) { return c.position.limit_z; },
+                                          [](Config& c, float v) { c.position.limit_z = v; })
+        .Concept<Concept::PositionLimitZBack>([](const Config& c) { return c.position.limit_z_back; },
+                                              [](Config& c, float v) { c.position.limit_z_back = v; })
+        .Concept<Concept::CollisionEnabled>(&Config::collision_enabled)
+        .Concept<Concept::CollisionMargin>([](const Config& c) { return c.lean_clamp.skin; },
+                                           [](Config& c, float v) { c.lean_clamp.skin = v; })
+        .Comment("How far, in Arx units (1 unit = 1 cm), a lean holds the eye off a wall. 2 to 200.\n"
+                 "It must stay above the engine's 1-unit near clip, or the wall is culled anyway.")
+        .Concept<Concept::CollisionReleaseSmoothing>([](const Config& c) { return c.lean_clamp.release_smoothing; },
+                                                     [](Config& c, float v) { c.lean_clamp.release_smoothing = v; })
+        .Concept<Concept::ToggleKey>(&Config::toggle_key_name)
+        .Concept<Concept::CycleTrackingModeKey>(&Config::cycle_tracking_mode_key_name)
+        .PerGame();
+    table.Local("General", "FieldOfView", &Config::field_of_view, FieldOfViewCodec(),
+                "Vertical field of view in degrees. Arx has no setting of its own and renders\n"
+                "75.95 degrees vertically, which widens horizontally on a wide monitor. 0 leaves\n"
+                "the game's own alone. 40 to 110 can be set, and the view still narrows when you\n"
+                "draw a bow either way.");
+    table.Local("General", "Diagnostics", &Config::diagnostics, cfg::BoolCodec(),
+                "true: write a line a second to ArxFatalisHeadTracking.log naming the camera the\n"
+                "shot leaves from, the camera the frame is drawn through and the point the cursor\n"
+                "is placed on. Only useful for reporting a problem.");
+    return table;
+}
 
-    if (!FileExists(path)) {
-        WriteDefaultIni(path, Config{});
-    }
+cfg::LegacyImport<Config> MakeLegacyImport() {
+    return {&Import, legacy::ReadKeys()};
+}
 
-    legacy::Config l;
-    if (legacy::Read(path, l) == legacy::ReadStatus::Absent) {
-        Log::Line("WARN: %s could not be opened; running on defaults.", path);
-    }
-
-    udp_port = l.udp_port;
-    enabled_on_startup = l.enabled_on_startup;
-    move_crosshair = l.move_crosshair;
-    diagnostics = l.diagnostics;
-    field_of_view = l.field_of_view;
-    sens_yaw = l.sens_yaw;
-    sens_pitch = l.sens_pitch;
-    sens_roll = l.sens_roll;
-    invert_yaw = l.invert_yaw;
-    invert_pitch = l.invert_pitch;
-    invert_roll = l.invert_roll;
-    local_smoothing = l.local_smoothing;
-    remote_smoothing = l.remote_smoothing;
-    position_enabled = l.position_enabled;
-    pos_sens_x = l.pos_sens_x;
-    pos_sens_y = l.pos_sens_y;
-    pos_sens_z = l.pos_sens_z;
-    pos_limit_x = l.pos_limit_x;
-    pos_limit_y = l.pos_limit_y;
-    pos_limit_z = l.pos_limit_z;
-    pos_limit_z_back = l.pos_limit_z_back;
-    collision_enabled = l.collision_enabled;
-    collision_radius = l.collision_radius;
-    collision_release_smoothing = l.collision_release_smoothing;
-    vk_toggle = l.vk_toggle;
-    vk_cycle_mode = l.vk_cycle_mode;
-
-    return true;
+cfg::ConfigOwnerOptions<Config> MakeConfigOwnerOptions(const std::wstring& folder, cfg::DefaultsFile defaults) {
+    const auto wide = [](const char* name) { return std::wstring(name, name + std::char_traits<char>::length(name)); };
+    cfg::ConfigOwnerOptions<Config> options;
+    options.path = folder + wide(kConfigFileName);
+    options.legacy_path = folder + wide(kLegacyConfigFileName);
+    options.table = MakeConfigTable();
+    options.import = MakeLegacyImport();
+    options.header.display_name = kConfigDisplayName;
+    options.defaults = std::move(defaults);
+    return options;
 }
 
 }  // namespace ArxHeadTracking

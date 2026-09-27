@@ -17,8 +17,7 @@ namespace ArxHeadTracking {
 // distance and split either side of it the moment the head leans.
 struct AimPoint {
     // Whether `screenX` / `screenY` hold a position to draw on. False when the
-    // crosshair is not being moved, the cast could not run, or the point is
-    // behind the rendered eye.
+    // cast could not run, or the point is behind the rendered eye.
     bool valid = false;
     float screenX = 0.0f;
     float screenY = 0.0f;
@@ -30,7 +29,7 @@ struct AimPoint {
     bool hitGeometry = false;
 };
 
-void InitAimProjection(const BuildProfile& profile, bool moveCrosshair);
+void InitAimProjection(const BuildProfile& profile);
 
 // Casts along the clean facing and projects where it lands into `subj`, the
 // camera the frame is about to be drawn through. Returns this frame's aim

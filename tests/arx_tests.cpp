@@ -5,15 +5,13 @@
 //
 // Each of these is a place a wrong answer is invisible in play: the engine
 // boundary where the tracker's conventions become Arx's, the projection the
-// cursor is placed with, the focal-to-field-of-view map that the zoom factor and
-// a chosen field of view are both built on, and the INI reader with its
-// sanitizers. Everything here is a behaviour lock - the assertions record what
-// the shipped code does, so a restructure that changes an answer fails rather
-// than ships.
+// cursor is placed with, and the focal-to-field-of-view map that the zoom factor
+// and a chosen field of view are both built on. Everything here is a behaviour
+// lock - the assertions record what the shipped code does, so a restructure that
+// changes an answer fails rather than ships.
 
 #include "arx_game.h"
 #include "build_profile.h"
-#include "config.h"
 #include "engine_boundary.h"
 #include "roll_math.h"
 #include "lean_trace.h"
@@ -305,107 +303,6 @@ void TestChosenFieldOfView() {
 }
 
 // ---------------------------------------------------------------------------
-// The INI, driven end to end through the reader that ships.
-std::string TempIni(const char* body) {
-    char dir[MAX_PATH] = {};
-    const DWORD written = GetTempPathA(MAX_PATH, dir);
-    if (written == 0 || written >= MAX_PATH) {
-        ++g_failures;
-        std::printf("FAIL: could not resolve a temp directory to write the test INI into\n");
-        return {};
-    }
-    std::string path = std::string(dir) + "arx_ht_test.ini";
-    FILE* f = fopen(path.c_str(), "wb");
-    if (!f) {
-        ++g_failures;
-        std::printf("FAIL: could not create %s\n", path.c_str());
-        return {};
-    }
-    fputs(body, f);
-    fclose(f);
-    return path;
-}
-
-void TestConfig() {
-    const std::string path = TempIni(
-        "[Network]\nPort=6039\n"
-        "[General]\nEnableOnStartup=0\nMoveCrosshair=0\nFieldOfView=90\n"
-        "[Smoothing]\nLocalSmoothing=0.25\nRemoteSmoothing=0.40\n"
-        "[Position]\nPositionLimitX=0.15\nPositionLimitZ=0.55\nCollisionRadius=25\n"
-        "[Hotkeys]\nToggleKey=0x24\n");
-    Config cfg;
-    Check(cfg.LoadOrCreate(path.c_str()), "an existing INI loads");
-    Check(cfg.udp_port == 6039, "the port is read");
-    Check(!cfg.enabled_on_startup, "EnableOnStartup=0 is honoured");
-    Check(!cfg.move_crosshair, "MoveCrosshair=0 is honoured");
-    CheckNear(cfg.field_of_view, 90.0f, "a chosen field of view is read");
-    CheckNear(cfg.local_smoothing, 0.25f, "LocalSmoothing is read");
-    CheckNear(cfg.remote_smoothing, 0.40f, "RemoteSmoothing is read");
-    CheckNear(cfg.pos_limit_x, 0.15f, "a position limit is read");
-    CheckNear(cfg.pos_limit_z, 0.55f, "the forward limit is read");
-    CheckNear(cfg.collision_radius, 25.0f, "the collision standoff is read in Arx units");
-    Check(cfg.vk_toggle == 0x24, "a bindable key is accepted");
-    DeleteFileA(path.c_str());
-
-    // A limit outside its range is pulled back into it and the correction is
-    // logged. Zero is the floor rather than the shipped default, which is the
-    // point: a negative limit would invert the processor's bounds and pin the
-    // lean at a fixed offset instead of freeing it, and zero simply disables
-    // that axis until the player fixes the value the log named.
-    const std::string bad = TempIni("[Position]\nPositionLimitX=-1.0\n"
-                                    "[General]\nFieldOfView=200\n"
-                                    "[Smoothing]\nLocalSmoothing=0,25\n"
-                                    "[Hotkeys]\nToggleKey=0x230\n");
-    Config guarded;
-    Check(guarded.LoadOrCreate(bad.c_str()), "a malformed INI still loads");
-    CheckNear(guarded.pos_limit_x, 0.0f, "a negative limit is pulled up to the range floor");
-    CheckNear(guarded.field_of_view, 0.0f,
-              "a field of view outside the range falls back to the game's own rather than "
-              "being clamped to something nobody asked for");
-    CheckNear(guarded.local_smoothing, Config{}.local_smoothing,
-              "a European decimal comma keeps the default rather than reading as zero");
-    Check(guarded.vk_toggle == Config{}.vk_toggle,
-          "a key code the OS cannot poll keeps the default");
-    DeleteFileA(bad.c_str());
-
-    // The values that used to slip past the guards entirely. Every comparison
-    // against a NaN is false, so FieldOfView=nan passed the range test AND the
-    // "is a field of view set" gate in the camera hook, and went into the
-    // engine's own CURRENT_BASE_FOCAL. ToggleKey=End parsed as hex 0x0E - a real
-    // virtual key that no keyboard can produce. A trailing comment on a bool
-    // matched none of the accepted words and the edit was discarded in silence.
-    // And a standoff under the near plane holds the eye off a wall the engine
-    // then culls, which is the complaint the clamp exists to answer.
-    const std::string sneaky = TempIni("[General]\nFieldOfView=nan\nMoveCrosshair=0 ; off\n"
-                                       "[Position]\nCollisionRadius=0.5\n"
-                                       "PositionEnabled=maybe\n"
-                                       "[Hotkeys]\nToggleKey=End\n");
-    Config sane;
-    Check(sane.LoadOrCreate(sneaky.c_str()), "an INI full of near-misses still loads");
-    CheckNear(sane.field_of_view, 0.0f,
-              "FieldOfView=nan renders the game's own rather than reaching the engine");
-    Check(!sane.move_crosshair,
-          "a bool with a trailing comment is honoured rather than silently discarded");
-    Check(sane.position_enabled == Config{}.position_enabled,
-          "and one that is not a yes or a no keeps the default and is reported");
-    Check(sane.collision_radius >= kMinCollisionRadius,
-          "a standoff under the engine's near clip is pulled up to it");
-    Check(sane.vk_toggle == Config{}.vk_toggle,
-          "a key NAME is refused rather than read as a hex prefix");
-    DeleteFileA(sneaky.c_str());
-
-    // A comma decimal and a hex literal are both prefix-parseable and both
-    // silently wrong; FieldOfView was the one number in the file still reading
-    // them that way.
-    const std::string prefixes = TempIni("[General]\nFieldOfView=75,95\n");
-    Config commaFov;
-    Check(commaFov.LoadOrCreate(prefixes.c_str()), "the comma INI loads");
-    CheckNear(commaFov.field_of_view, 0.0f,
-              "a European decimal comma is refused rather than read as 75");
-    DeleteFileA(prefixes.c_str());
-}
-
-// ---------------------------------------------------------------------------
 // The player.Interface bits the gameplay gate and the crosshair test are decided
 // on. Which panels suppress tracking is a judgement rather than an engine fact,
 // so it is locked here: a full-screen panel the player is reading suppresses it,
@@ -655,7 +552,6 @@ int main() {
     TestRotationDomainClamp();
     TestZoomBasisRejectsUnreadableFocal();
     TestCursorClamp();
-    TestConfig();
     TestInterfaceGateFlags();
     TestBuildProfile();
 

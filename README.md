@@ -79,8 +79,8 @@ The rest of the ZIP is the installer, the licences and these documents:
 - `plugins/ArxFatalisHeadTracking.asi` goes in as
   `ArxFatalisHeadTracking.asi`.
 
-The mod writes `ArxFatalisHeadTracking.ini` and `ArxFatalisHeadTracking.log`
-beside them the first time it runs.
+The mod writes `CameraUnlock.ini` and `ArxFatalisHeadTracking.log` beside them
+the first time it runs.
 
 ## Setting Up OpenTrack
 
@@ -152,8 +152,12 @@ look down, so pressing one of those does both things at once. It also binds
 you into both for as long as you hold it. The cycle chord is `Ctrl+Shift+J`
 rather than the `Ctrl+Shift+G` other mods use because `G` is Arx's drink-mana-
 potion key, and `J` is the next key in the same cluster that Arx leaves alone.
-The nav-cluster keys can be changed: the mod's in `ArxFatalisHeadTracking.ini`,
-the game's in Options.
+Every key in both sets can be changed: the mod's with `ToggleKey` and
+`CycleTrackingModeKey` in `CameraUnlock.ini`, the game's in Options.
+
+The tracking mode you pick is saved in `CameraUnlock.ini` and comes back the next
+time you start the game. Turning tracking off with `End` lasts until you close the
+game: tracking starts on or off as `EnableOnStartup` says.
 
 There is no recenter key. Centring is done in your tracker - OpenTrack's Center
 bind, or the CENTER button in a phone app - so there is only one centre to get
@@ -161,91 +165,113 @@ right.
 
 ## Configuration
 
-`ArxFatalisHeadTracking.ini` is written next to `arx.exe` on first run, with
-each section commented. Edit it with the game closed.
+Apart from creating `CameraUnlock.ini` at startup when there is none, the mod writes to it only when the mode hotkey changes the tracking mode. Edit it with the game closed.
+
+<!-- cameraunlock:config -->
+The mod reads its settings from `CameraUnlock.ini` in the game folder, at one of these paths depending on the store the game came from:
+
+- `CameraUnlock.ini`
+- `EN\CameraUnlock.ini`
+
+It creates the file when it starts and finds none. Edit it with any text editor.
+
+A setting set to `default` takes its value from `Defaults.ini`, which every head tracking mod that keeps its settings in `CameraUnlock.ini` reads. Head tracking mods that keep their settings in another file do not read it. Writing a value in place of `default` changes that setting for this game only. When the mod saves a setting that a hotkey changed in game, it writes the new value in place of `default`, so that setting no longer follows `Defaults.ini` in this game until you set it to `default` again.
+
+`Defaults.ini` is `%AppData%\CameraUnlock\Defaults.ini` on Windows; `$XDG_CONFIG_HOME/CameraUnlock/Defaults.ini` on Linux, or `~/.config/CameraUnlock/Defaults.ini` where `XDG_CONFIG_HOME` is not set, under Wine and Proton too; and `~/Library/Application Support/CameraUnlock/Defaults.ini` on macOS. The mod's log, where it writes one, names the file it read.
+
+When the mod starts and finds no `Defaults.ini`, it creates one holding the built-in values, unless Windows runs the game as a packaged app. The mod never changes `Defaults.ini` after that. Edit it with any text editor.
+
+The built-in value of each setting set to `default` below:
+
+- `UdpPort=4242`
+- `EnableOnStartup=true`
+- `RotationEnabled=true`
+- `LocalSmoothing=0.0`
+- `RemoteSmoothing=0.15`
+- `PositionEnabled=true`
+- `PositionLimitX=0.3`
+- `PositionLimitY=0.2`
+- `PositionLimitYDown=0.2`
+- `PositionLimitZ=0.4`
+- `PositionLimitZBack=0.1`
+- `CollisionEnabled=true`
+- `CollisionReleaseSmoothing=0.9`
+- `ToggleKey=End, Ctrl+Shift+Y`
+
+With every setting at its default, the file reads:
 
 ```ini
+; Arx Fatalis head tracking settings.
+; Comments start with ; and go on their own line. Text after a value is part of the value.
+; Hotkeys are key names such as End, PageUp or Ctrl+Shift+Y. Separate several with commas; leave empty for none.
+; A setting set to default takes its value from Defaults.ini, which every head tracking mod
+; that keeps its settings in CameraUnlock.ini reads: %AppData%\CameraUnlock\Defaults.ini on
+; Windows, $XDG_CONFIG_HOME/CameraUnlock/Defaults.ini (normally ~/.config/CameraUnlock) on
+; Linux, under Wine and Proton too, and ~/Library/Application Support/CameraUnlock/Defaults.ini
+; on macOS. The log names the file it read. Write a value instead of default to change that
+; setting for this game only.
+
+[CameraUnlock]
+; Written by the mod. Leave this section in place.
+ConfigFormat=1
+
 [Network]
-; UDP port to listen on. 4242 is what OpenTrack sends to by default.
-Port=4242
+; UDP port the mod receives tracker data on (OpenTrack protocol).
+UdpPort=default
 
 [General]
-; Whether tracking is live as soon as the game starts.
-EnableOnStartup=1
-; Move the game's cursor onto the point you are aiming at. Turning this off
-; leaves the cursor where the game puts it, which is wherever your head is
-; pointed rather than where your character is.
-MoveCrosshair=1
+; true: head tracking is on when the game starts. ToggleKey turns it on and off.
+EnableOnStartup=default
+; true: turning your head turns the view.
+; Tracking mode at startup, with PositionEnabled. The mode hotkey changes both.
+RotationEnabled=default
 ; Vertical field of view in degrees. Arx has no setting of its own and renders
-; 75.95 degrees vertically, which widens horizontally on a wide monitor. 0
-; leaves the game's own alone. 40 to 110 can be set, and the view still narrows
-; when you draw a bow either way.
+; 75.95 degrees vertically, which widens horizontally on a wide monitor. 0 leaves
+; the game's own alone. 40 to 110 can be set, and the view still narrows when you
+; draw a bow either way.
 FieldOfView=0.0
-; Write a line a second to ArxFatalisHeadTracking.log naming the camera the shot
-; leaves from, the camera the frame is drawn through and the point the cursor is
-; placed on. Only useful for reporting a problem.
-Diagnostics=0
-
-[Sensitivity]
-; Shape the pose in your tracker, not here, so one profile behaves the same in
-; every game. These stay at 1.0 unless you have a reason.
-YawSensitivity=1.0
-PitchSensitivity=1.0
-RollSensitivity=1.0
-
-[Inversion]
-; Fix a mirrored axis in your tracker where you can, so it is right in every
-; game at once.
-InvertYaw=0
-InvertPitch=0
-InvertRoll=0
+; true: write a line a second to ArxFatalisHeadTracking.log naming the camera the
+; shot leaves from, the camera the frame is drawn through and the point the cursor
+; is placed on. Only useful for reporting a problem.
+Diagnostics=false
 
 [Smoothing]
-; Which of these applies is decided per connection, by the address the packets
-; arrive from. Only loopback (127.0.0.1) counts as local: a tracker running on
-; this same PC but sending to the machine's LAN address is treated as remote.
-; Both cover rotation and position. 0 is no smoothing at all.
-LocalSmoothing=0.0
-RemoteSmoothing=0.15
+; Smoothing when the tracker runs on this PC. 0 is the least, 1 the most.
+LocalSmoothing=default
+; Smoothing when the tracker is another device on the network, such as a phone.
+; 0 is the least, 1 the most.
+RemoteSmoothing=default
 
 [Position]
-; Positional (6DOF) tracking - leaning. Limits are in metres.
-PositionEnabled=1
-; As above: shape the pose in your tracker. X is side to side, Y is up and
-; down, Z is forward and back.
-PositionSensitivityX=1.0
-PositionSensitivityY=1.0
-PositionSensitivityZ=1.0
-; How far the view may move from where the game put it, in metres.
-PositionLimitX=0.30
-PositionLimitY=0.20
-; Forward gets more room than backward so pulling back does not put the view
-; inside your own body.
-PositionLimitZ=0.40
-PositionLimitZBack=0.10
-
-; Stop a lean pushing the view through a wall. The trace uses the game's own
-; level collision. CollisionRadius is how far off a surface the eye is held, in
-; Arx units (1 unit = 1 cm), and must stay above the engine's 1-unit near clip
-; or the wall is culled and you see through it anyway.
-CollisionEnabled=1
-CollisionRadius=18.0
-CollisionReleaseSmoothing=0.9
+; true: moving your head moves the view.
+; Tracking mode at startup, with RotationEnabled. The mode hotkey changes both.
+PositionEnabled=default
+; How far, in metres, leaning left or right can move the view.
+PositionLimitX=default
+; How far, in metres, raising your head can move the view.
+PositionLimitY=default
+; How far, in metres, lowering your head can move the view.
+PositionLimitYDown=default
+; How far, in metres, leaning forward can move the view.
+PositionLimitZ=default
+; How far, in metres, leaning back can move the view.
+PositionLimitZBack=default
+; true: leaning stops at walls instead of moving the view through them.
+CollisionEnabled=default
+; How far, in Arx units (1 unit = 1 cm), a lean holds the eye off a wall. 2 to 200.
+; It must stay above the engine's 1-unit near clip, or the wall is culled anyway.
+CollisionMargin=18.0
+; How gently the view eases back out after a wall stopped a lean.
+; 0 is the quickest, 1 the slowest.
+CollisionReleaseSmoothing=default
 
 [Hotkeys]
-; Virtual key codes. Every action also has a Ctrl+Shift chord for keyboards
-; with no navigation cluster.
-;  End      / Ctrl+Shift+Y : tracking on or off
-;  Page Up  / Ctrl+Shift+J : cycle 6DOF -> rotation only -> position only
-;
-; Both sets collide with something Arx already uses; pick whichever you
-; mind less. End, Page Up and Page Down are centre view, look up and look
-; down. Ctrl is magic mode and Shift is stealth mode, so holding a chord
-; enters both for as long as you hold it.
-; There is no recenter key. Centre your head in the tracker.
-ToggleKey=0x23
-CycleTrackingModeKey=0x21
+; Turns head tracking on and off.
+ToggleKey=default
+; Changes the tracking mode: rotation and position, rotation only, position only.
+CycleTrackingModeKey=PageUp, Ctrl+Shift+J
 ```
+<!-- /cameraunlock:config -->
 
 ### Field of view
 
@@ -295,9 +321,9 @@ to `127.0.0.1`. A phone sending a raw feed direct is the usual cause: route it
 through OpenTrack so its filters clean the signal up before it arrives. Poor
 lighting on a webcam produces the same shake, and is fixed at the camera.
 
-**Wrong rotation axis: left and right are swapped.** Set `InvertYaw=1`. If
-leaning is mirrored, check your tracker's own axis settings first - the tracker
-owns the shape of the pose, and fixing it there fixes it in every game at once.
+**Wrong rotation axis: left and right are swapped, or leaning is mirrored.** Fix
+it in your tracker's own axis settings. The tracker owns the shape of the pose,
+and fixing it there fixes it in every game at once.
 
 **Yaw feels wrong when I am looking up or down at a steep angle.** Turning your
 head always turns the view about the vertical, whichever way the camera is
@@ -308,7 +334,7 @@ working. It marks where your character is aiming, which stops being the middle
 of the screen the moment your head moves.
 
 **Everything looks too zoomed in, or too wide.** Set `FieldOfView` in
-`ArxFatalisHeadTracking.ini`; see above.
+`CameraUnlock.ini`; see above.
 
 **The game window moved when I launched.** By design, and only when you play
 windowed: once the game has finished placing its window, the mod centres it on
@@ -318,12 +344,12 @@ a fullscreen one, are left where they are.
 ## Updating
 
 Download the new release and run `install.cmd` again. It overwrites the mod and
-the loader and leaves `ArxFatalisHeadTracking.ini` alone, so your settings
-survive.
+the loader and leaves `CameraUnlock.ini` alone, so your settings survive.
 
 ## Uninstalling
 
-Run `uninstall.cmd`. It removes the mod's files from the game folder. The ASI
+Run `uninstall.cmd`. It removes the mod's files from the game folder and leaves
+`CameraUnlock.ini` in place, so a reinstall keeps your settings. The ASI
 loader (`dinput.dll`) is only removed if the installer put it there; use
 `uninstall.cmd /force` to remove it anyway.
 

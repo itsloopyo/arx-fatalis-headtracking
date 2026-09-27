@@ -20,7 +20,6 @@ namespace {
 constexpr float kFallbackAimReach = 2100.0f;
 
 const BuildProfile* g_profile = nullptr;
-bool g_enabled = false;
 AimPoint g_aim;
 
 // A private copy of the camera the frame is about to be drawn through, carrying
@@ -44,9 +43,8 @@ EerieCamera MakeProjectionCamera(const EerieCamera& subj) {
 
 }  // namespace
 
-void InitAimProjection(const BuildProfile& profile, bool moveCrosshair) {
+void InitAimProjection(const BuildProfile& profile) {
     g_profile = &profile;
-    g_enabled = moveCrosshair;
 }
 
 void ClearAimPoint() {
@@ -56,7 +54,6 @@ void ClearAimPoint() {
 const AimPoint& ComputeAimPoint(const EerieCamera& subj, const float cleanPos[3],
                                 const float cleanAngle[3], float projScale) {
     g_aim.valid = false;
-    if (!g_enabled) return g_aim;
     if (!(projScale > 0.0f)) {
         static bool s_warned = false;
         if (!s_warned) {

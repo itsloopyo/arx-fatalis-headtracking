@@ -15,7 +15,9 @@
 #>
 param(
     [ValidateSet('Debug', 'Release')]
-    [string]$Configuration = 'Debug'
+    [string]$Configuration = 'Debug',
+    # Build the test binaries without running them (pixi run build-tests).
+    [switch]$BuildOnly
 )
 
 Set-StrictMode -Version Latest
@@ -42,6 +44,7 @@ if ($LASTEXITCODE -ne 0) { Write-Host 'ERROR: cmake configure failed' -Foregroun
 
 & cmake --build $buildDir --config $Configuration
 if ($LASTEXITCODE -ne 0) { Write-Host 'ERROR: test build failed' -ForegroundColor Red; exit 1 }
+if ($BuildOnly) { exit 0 }
 
 & ctest --test-dir $buildDir --build-config $Configuration --output-on-failure
 if ($LASTEXITCODE -ne 0) { Write-Host 'ERROR: tests failed' -ForegroundColor Red; exit 1 }

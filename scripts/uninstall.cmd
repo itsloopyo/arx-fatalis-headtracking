@@ -34,10 +34,10 @@ set "MOD_SEED_FILES="
 :: reinstall: paths relative to the game folder, quoted when one holds a space.
 :: Keep the line when it is blank, or the list another mod's uninstall.cmd set
 :: in the same console is used instead.
-set "PRESERVE_FILES="
+set "PRESERVE_FILES=CameraUnlock.ini EN\CameraUnlock.ini ArxFatalisHeadTracking.ini EN\ArxFatalisHeadTracking.ini"
 :: Config and log files the mod writes at runtime, removed from wherever the
 :: DLLs were deployed.
-set "MOD_LEFTOVERS=ArxFatalisHeadTracking.ini ArxFatalisHeadTracking.log ArxFatalisHeadTracking.prev.log"
+set "MOD_LEFTOVERS=ArxFatalisHeadTracking.log ArxFatalisHeadTracking.prev.log"
 :: Files to remove from the game root. Only needed by a mod deployed BELOW the
 :: root (see ASI_SUBDIR) that still resolves its config and log from the exe's
 :: own directory.

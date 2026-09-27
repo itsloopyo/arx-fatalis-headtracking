@@ -23,6 +23,12 @@ build-release = { cmd = "cmake --build build --config Release", depends-on = ["s
 # Build and run the native unit tests (Arx camera maths, cursor projection) and the config
 # differential test, in their own tree (build-tests/).
 test = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1" }
+build-tests = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1 -BuildOnly" }
+
+# Rewrite config/CameraUnlock.ini, the committed copy of the CameraUnlock.ini the mod creates at
+# first launch, from the config table after a change to a row, a comment or a default, then
+# rewrite the per_game of launcher-manifest.json's config descriptor from it.
+render-config = { cmd = "build-tests/Debug/config_tests.exe --render-config config/CameraUnlock.ini && node cameraunlock-core/scripts/encode-seed.mjs", depends-on = ["build-tests"] }
 
 # Build + deploy release next to arx.exe.
 install = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/deploy.ps1 Release", depends-on = ["build-release"] }
@@ -49,4 +55,7 @@ update-deps = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/update-d
 strip-loader = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/strip-loader-payload.ps1 -Path vendor/ultimate-asi-loader/dinput8.dll" }
 
 [dependencies]
-# No pixi dependencies - uses system CMake + Visual Studio.
+# CMake and Visual Studio come from the system. Node runs the migrated-config lint in `test`,
+# render-config's encode-seed.mjs and core's validate-manifest, pinned to the build
+# cameraunlock-core's own lock resolved.
+nodejs = "==26.5.0"

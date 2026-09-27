@@ -48,3 +48,6 @@
 
 # The differential test's inputs are byte-exact, CRLF included.
 tests/config_differential/data/** -text
+
+# The committed config is byte-exact, CRLF included: the render test compares it with the table.
+config/CameraUnlock.ini -text

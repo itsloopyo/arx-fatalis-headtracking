@@ -26,7 +26,8 @@ using DrawBitmapFn = void(__cdecl*)(void*, float, float, float, float, float, vo
 constexpr float kMaxCrosshairSprite = 64.0f;
 
 const BuildProfile* g_profile = nullptr;
-bool g_enabled = false;
+// Set once InstallCursorHook has g_profile; the camera hook can reach PlaceCursorOnAimPoint first.
+bool g_installed = false;
 FlyingOverObjectFn g_origFlyingOverObject = nullptr;
 DrawBitmapFn g_origDrawBitmap = nullptr;
 
@@ -124,7 +125,7 @@ bool IsCentredCrosshair(float x, float y, float sx, float sy, void* texture) {
 // straight along.
 void __cdecl Detour_DrawBitmap(void* device, float x, float y, float sx, float sy, float z,
                                void* texture, uint32_t colour) {
-    if (g_enabled && texture != nullptr && IsCentredCrosshair(x, y, sx, sy, texture)) {
+    if (g_installed && texture != nullptr && IsCentredCrosshair(x, y, sx, sy, texture)) {
         static bool s_reported = false;
         if (!s_reported) {
             s_reported = true;
@@ -145,7 +146,7 @@ void __cdecl Detour_DrawBitmap(void* device, float x, float y, float sx, float s
 }  // namespace
 
 void PlaceCursorOnAimPoint() {
-    if (!g_enabled || !CursorPinnedToCentre()) return;
+    if (!g_installed || !CursorPinnedToCentre()) return;
 
     float x = 0.0f, y = 0.0f;
     if (!GetAimScreenPosition(x, y)) return;
@@ -166,14 +167,9 @@ void RestoreCursor() {
     g_moved = false;
 }
 
-bool InstallCursorHook(const BuildProfile& profile, const Config& cfg) {
+bool InstallCursorHook(const BuildProfile& profile) {
     g_profile = &profile;
-    g_enabled = cfg.move_crosshair;
-    if (!g_enabled) {
-        Log::Line("MoveCrosshair is off: the cursor and crosshair stay where the game puts "
-                  "them.");
-        return true;
-    }
+    g_installed = true;
 
     bool ok = true;
     if (!InstallDetour(reinterpret_cast<void*>(profile.addrFlyingOverObject),

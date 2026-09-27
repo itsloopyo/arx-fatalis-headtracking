@@ -4,7 +4,6 @@
 #pragma once
 
 #include "build_profile.h"
-#include "config.h"
 
 namespace ArxHeadTracking {
 
@@ -16,7 +15,7 @@ namespace ArxHeadTracking {
 // mark and what it selects together, which is the whole point - a crosshair that
 // sits on the shot but picks up whatever the head happens to face would be worse
 // than not moving it at all.
-bool InstallCursorHook(const BuildProfile& profile, const Config& cfg);
+bool InstallCursorHook(const BuildProfile& profile);
 
 // Puts DANAEMouse on the aim point, if the game currently has it pinned to the
 // screen centre.

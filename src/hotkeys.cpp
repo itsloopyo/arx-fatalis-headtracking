@@ -5,9 +5,12 @@
 
 #include "logging.h"
 
-#include "cameraunlock/input/chord_hotkeys.h"
+#include "cameraunlock/input/key_binding_registration.h"
+#include "cameraunlock/input/key_bindings.h"
 
 #include <exception>
+#include <stdexcept>
+#include <string>
 
 namespace ArxHeadTracking {
 
@@ -15,32 +18,28 @@ namespace {
 // ~60Hz: fast enough that a deliberate press is never missed, slow enough to
 // cost nothing.
 constexpr int kPollIntervalMs = 16;
+
+// The table read every list through the hotkey codec, so a list that does not parse here is a
+// bug, not a player's typo.
+void Register(cameraunlock::input::HotkeyPoller& poller, const std::string& list, const char* key,
+              std::function<void()> action) {
+    const cameraunlock::input::KeyBindingsParseResult parsed = cameraunlock::input::ParseKeyBindings(list);
+    if (!parsed.ok()) {
+        throw std::logic_error(std::string("[Hotkeys] ") + key + "=" + list + " does not parse: " + parsed.error);
+    }
+    cameraunlock::input::RegisterKeyBindings(poller, parsed.bindings, std::move(action));
+}
+
 }  // namespace
 
 bool Hotkeys::Start(const Config& cfg, Action onToggle, Action onCycleMode) {
     if (m_started) return true;
 
-    using cameraunlock::input::ChordGuarded;
-    using cameraunlock::input::NavGuarded;
-
-    // The nav keys are suppressed while Ctrl+Shift is held so a Ctrl+Shift+<nav>
-    // press cannot fire the same action through both paths.
-    m_poller.SetToggleKey(cfg.vk_toggle, NavGuarded(onToggle));
-    m_poller.AddHotkey(cfg.vk_cycle_mode, NavGuarded(onCycleMode));
-
-    // Both binding sets are always live. The chords are not an alternative the
-    // player opts into; they are the same actions reached from a keyboard with
-    // no nav cluster.
-    //
-    // The cycle chord is J, not the fleet's usual G. Arx binds G to drinking a
-    // mana potion, H to a health potion and T to the torch, and it binds Ctrl to
-    // magic mode and Shift to stealth mode - so Ctrl+Shift+G would have cycled
-    // the tracking mode AND swallowed a potion on every press. The doctrine's
-    // answer to a game that binds one of these is to take the next free letter
-    // from the same cluster rather than change the modifier, and J is the one
-    // Arx leaves alone.
-    m_poller.AddHotkey('Y', ChordGuarded(std::move(onToggle)));
-    m_poller.AddHotkey('J', ChordGuarded(std::move(onCycleMode)));
+    // A binding without modifiers does not fire while Ctrl and Shift are both
+    // held, so a Ctrl+Shift+<nav> press cannot fire an action through both its
+    // nav key and its chord.
+    Register(m_poller, cfg.toggle_key_name, "ToggleKey", std::move(onToggle));
+    Register(m_poller, cfg.cycle_tracking_mode_key_name, "CycleTrackingModeKey", std::move(onCycleMode));
 
     // The poller rethrows std::system_error when the process cannot spawn its
     // thread. The caller runs on a bare thread procedure with no handler above
@@ -57,9 +56,8 @@ bool Hotkeys::Start(const Config& cfg, Action onToggle, Action onCycleMode) {
         return false;
     }
 
-    Log::Line("Hotkeys: toggle=0x%02X or Ctrl+Shift+Y, cyclemode=0x%02X or Ctrl+Shift+J. "
-              "No recenter key - centre in the tracker.",
-              cfg.vk_toggle, cfg.vk_cycle_mode);
+    Log::Line("Hotkeys: toggle=%s, cycle mode=%s. No recenter key - centre in the tracker.",
+              cfg.toggle_key_name.c_str(), cfg.cycle_tracking_mode_key_name.c_str());
     m_started = true;
     return true;
 }

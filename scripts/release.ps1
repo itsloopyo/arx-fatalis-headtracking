@@ -85,6 +85,10 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
 
 $tagName = "v$Version"
 
+# Before anything is written or committed: a version below config.canonical_since would ship a
+# descriptor naming a version later than itself.
+Assert-ReleaseNotBelowCanonicalSince -RepoRoot $projectRoot -Version $Version
+
 $currentBranch = git -C $projectRoot rev-parse --abbrev-ref HEAD
 if ($currentBranch -ne 'main') {
     Write-Host "Error: releases are cut from 'main' (currently on '$currentBranch')" -ForegroundColor Red
@@ -167,6 +171,11 @@ if (-not (git -C $projectRoot tag -l 'v*')) {
 
     if ($existing -match "\[$([regex]::Escape($Version))\]") {
         Write-Host "CHANGELOG already has an entry for $Version; leaving it alone." -ForegroundColor Yellow
+    } elseif ($existing -match '(?m)^##\s*\[Unreleased\]') {
+        # Changes made since the dev pre-release sit under [Unreleased], above the untagged
+        # section that pre-release was built from. They are what this release publishes.
+        $updated = [regex]::Replace($existing, '(?m)^##\s*\[Unreleased\].*$', "## [$Version] - $date", 1)
+        Set-Content -LiteralPath $changelogPath -Value $updated -NoNewline -Encoding UTF8
     } elseif ($existing -match '(?m)^##\s*\[\d+\.\d+\.\d+\]') {
         # The first heading is the untagged section this release is publishing. Give it this
         # version and today's date rather than burying it under a stub.

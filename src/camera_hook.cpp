@@ -267,13 +267,10 @@ bool InstallCameraHook(const BuildProfile& profile, TrackingRuntime& tracking,
     g_tracking = &tracking;
     g_cfg = cfg;
 
-    InitAimProjection(profile, cfg.move_crosshair);
+    InitAimProjection(profile);
     InitCameraDiagnostics(profile, cfg.diagnostics);
 
-    cameraunlock::camera::LeanClampSettings lean;
-    lean.skin = cfg.collision_radius;
-    lean.release_smoothing = cfg.collision_release_smoothing;
-    g_leanClamp.SetSettings(lean);
+    g_leanClamp.SetSettings(cfg.lean_clamp);
 
     if (MH_Initialize() != MH_OK) {
         Log::Line("ERROR: MinHook failed to initialise");

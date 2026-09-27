@@ -15,6 +15,7 @@
 
 #include "cameraunlock/diagnostics/crash_handler.h"
 #include "cameraunlock/memory/pe_fingerprint.h"
+#include "cameraunlock/tracking/tracking_mode.h"
 
 #include <windows.h>
 #include <process.h>
@@ -29,7 +30,6 @@ using namespace ArxHeadTracking;
 constexpr const char* kModName = "ArxFatalisHeadTracking";
 constexpr const char* kModVersion = "0.0.0";
 constexpr const char* kLogFile = "ArxFatalisHeadTracking.log";
-constexpr const char* kIniFile = "ArxFatalisHeadTracking.ini";
 
 constexpr int kInitMaxWaitMs = 30000;
 constexpr int kInitPollMs = 100;
@@ -52,6 +52,10 @@ Hotkeys& Input() {
     static Hotkeys* instance = new Hotkeys();
     return *instance;
 }
+
+// Built on the init thread before anything reads the config, and never destroyed for the same
+// reason as the two above. Only the hotkey poller's thread calls Save after startup.
+cameraunlock::config::ConfigOwner<Config>* g_owner = nullptr;
 
 // Whether GetModuleHandleExW pinned this module. Written from DllMain, read
 // once the log exists.
@@ -98,11 +102,68 @@ void ReportPinResult() {
 }
 
 void LogConfigSummary(const Config& cfg) {
-    Log::Line("Config: port=%u enabled=%d smoothing=(local %.2f, remote %.2f) "
-              "sens=(%.2f,%.2f,%.2f) position=%d crosshair=%d",
-              cfg.udp_port, cfg.enabled_on_startup ? 1 : 0, cfg.local_smoothing,
-              cfg.remote_smoothing, cfg.sens_yaw, cfg.sens_pitch, cfg.sens_roll,
-              cfg.position_enabled ? 1 : 0, cfg.move_crosshair ? 1 : 0);
+    Log::Line("Config: port=%u enabled=%d mode=(rotation %d, position %d) smoothing=(local %.2f, "
+              "remote %.2f) limits=(x %.2f, y %.2f/%.2f, z %.2f/%.2f) collision=%d margin=%.1f "
+              "fov=%.1f",
+              cfg.udp_port, cfg.enable_on_startup ? 1 : 0, cfg.rotation_enabled ? 1 : 0,
+              cfg.position_enabled ? 1 : 0, cfg.local_smoothing, cfg.remote_smoothing,
+              cfg.position.limit_x, cfg.position.limit_y, cfg.position.limit_y_down,
+              cfg.position.limit_z, cfg.position.limit_z_back, cfg.collision_enabled ? 1 : 0,
+              cfg.lean_clamp.skin, cfg.field_of_view);
+}
+
+// The folder this module was loaded from, with its trailing separator, which is where both
+// CameraUnlock.ini and the legacy file sit. Empty when Windows reports no path.
+std::wstring ModuleFolder() {
+    const std::wstring path = GetModulePathW(kConfigFileName);
+    if (path.empty()) return {};
+    return path.substr(0, path.size() - std::char_traits<char>::length(kConfigFileName));
+}
+
+// Reads CameraUnlock.ini, importing the legacy file once while it is absent. False when there is
+// no folder to read it from.
+bool LoadConfig(Config& cfg) {
+    const std::wstring folder = ModuleFolder();
+    if (folder.empty()) {
+        Log::Line("ERROR: could not resolve the directory this mod was loaded from, so there "
+                  "is nowhere to read the config.");
+        return false;
+    }
+    cameraunlock::config::ConfigOwnerOptions<Config> options =
+        MakeConfigOwnerOptions(folder, cameraunlock::config::DefaultsFile::PerUser());
+    // The mod has no overlay, so the player's one-line messages (an import that did not run,
+    // Defaults.ini that cannot be read, a save that failed) go to the log, the only place they
+    // can be seen.
+    options.status_sink = [](const std::string& message) { Log::Line("Config: %s", message.c_str()); };
+    g_owner = new cameraunlock::config::ConfigOwner<Config>(std::move(options));
+    const cameraunlock::config::ConfigLoadResult<Config> loaded = g_owner->Load();
+    for (const std::string& line : loaded.log) Log::Line("Config: %s", line.c_str());
+    Log::Line("Config: %s %s", kConfigFileName, cameraunlock::config::ConfigLoadStatusName(loaded.status));
+    cfg = loaded.config;
+
+    // The schema takes any margin from 0 up, and one at or under the engine's near clip holds the
+    // eye off a wall the engine then culls.
+    if (!(cfg.lean_clamp.skin >= kMinCollisionMargin && cfg.lean_clamp.skin <= kMaxCollisionMargin)) {
+        Log::Line("CollisionMargin=%.2f is outside %.0f-%.0f Arx units; using %.0f for this session.",
+                  cfg.lean_clamp.skin, kMinCollisionMargin, kMaxCollisionMargin, kDefaultCollisionMargin);
+        cfg.lean_clamp.skin = kDefaultCollisionMargin;
+    }
+    return true;
+}
+
+// The mode hotkey applies the new mode, then saves it. End never saves.
+void CycleTrackingModeAndSave() {
+    const cameraunlock::TrackingModeChannels mode =
+        cameraunlock::EncodeTrackingMode(Tracking().CycleTrackingMode());
+    const cameraunlock::config::ConfigSaveResult saved = g_owner->Save([mode](Config& c) {
+        c.rotation_enabled = mode.rotation_enabled;
+        c.position_enabled = mode.position_enabled;
+    });
+    for (const std::string& line : saved.log) Log::Line("Config: %s", line.c_str());
+    if (saved.status != cameraunlock::config::ConfigSaveStatus::Saved) {
+        Log::Line("Config: tracking mode not saved (%s)",
+                  cameraunlock::config::ConfigSaveStatusName(saved.status));
+    }
 }
 
 // The ASI loader can run us before the game module is mapped. False means it
@@ -152,10 +213,7 @@ unsigned InitThreadBody() {
     }
 
     Config cfg;
-    if (!cfg.LoadOrCreate(GetModulePath(kIniFile).c_str())) {
-        Log::Line("ERROR: config load failed");
-        return 1;
-    }
+    if (!LoadConfig(cfg)) return 1;
     LogFingerprint();
     LogConfigSummary(cfg);
 
@@ -173,14 +231,14 @@ unsigned InitThreadBody() {
     cameraunlock::diagnostics::InstallCrashHandler();
 
     InitGameState(*profile);
-    InitLeanTrace(*profile, cfg.collision_radius);
+    InitLeanTrace(*profile, cfg.lean_clamp.skin);
 
     Tracking().Start(cfg);
 
     if (!Input().Start(
             cfg,
             [] { Tracking().ToggleEnabled(); },
-            [] { Tracking().CycleTrackingMode(); })) {
+            [] { CycleTrackingModeAndSave(); })) {
         Log::Line("ERROR: hotkeys failed to start");
         Tracking().Stop();
         return 1;
@@ -195,7 +253,7 @@ unsigned InitThreadBody() {
         Tracking().Stop();
         return 1;
     }
-    InstallCursorHook(*profile, cfg);
+    InstallCursorHook(*profile);
 
     Log::Line("%s ready", kModName);
 

@@ -91,8 +91,7 @@ if(ARX_BUILD_TESTS)
         add_test(NAME ${name} COMMAND ${name})
     endfunction()
 
-    arx_add_test(arx_tests src/config.cpp src/legacy_config/legacy_config.cpp src/build_profile.cpp
-                 src/lean_trace.cpp)
+    arx_add_test(arx_tests src/build_profile.cpp src/lean_trace.cpp)
 
     # The config differential test. The oracle is the dev pre-release's reader and hotkey
     # registration with the core sources they compiled, copied verbatim into
@@ -131,17 +130,33 @@ if(ARX_BUILD_TESTS)
 
     add_executable(config_differential_tests
         tests/config_differential/differential_tests.cpp
+        src/config.cpp
         src/legacy_config/legacy_config.cpp
     )
     target_include_directories(config_differential_tests PRIVATE
         src
         tests/config_differential)
     target_compile_definitions(config_differential_tests PRIVATE
-        ARX_DIFFERENTIAL_DATA="${CMAKE_SOURCE_DIR}/tests/config_differential/data")
+        ARX_DIFFERENTIAL_DATA="${CMAKE_SOURCE_DIR}/tests/config_differential/data"
+        ARX_COMMITTED_CONFIG="${CMAKE_SOURCE_DIR}/config/CameraUnlock.ini")
     target_link_libraries(config_differential_tests PRIVATE
         cameraunlock arx_config_oracle arx_hotkeys_oracle)
     if(MSVC)
         target_compile_options(config_differential_tests PRIVATE /W4 /WX /permissive- /Zc:__cplusplus)
     endif()
     add_test(NAME config_differential_tests COMMAND config_differential_tests)
+
+    # Core's canonical config lint over the committed file and every file the differential
+    # test migrated, which it writes beside itself under migrated.
+    add_test(NAME config_lint COMMAND node
+        ${CMAKE_SOURCE_DIR}/tests/config_differential/lint-migrated.mjs
+        $<TARGET_FILE_DIR:config_differential_tests>/migrated)
+    set_tests_properties(config_lint PROPERTIES DEPENDS config_differential_tests)
+
+    # The committed config against the table, a first start, the mode hotkey's saves, the field
+    # of view's range and the legacy file's ANSI path. `--render-config <path>` makes it write
+    # the committed file instead (pixi run render-config).
+    arx_add_test(config_tests src/config.cpp src/legacy_config/legacy_config.cpp)
+    target_compile_definitions(config_tests PRIVATE
+        ARX_COMMITTED_CONFIG="${CMAKE_SOURCE_DIR}/config/CameraUnlock.ini")
 endif()
