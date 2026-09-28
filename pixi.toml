@@ -22,7 +22,9 @@ build-release = { cmd = "cmake --build build --config Release", depends-on = ["s
 
 # Build and run the native unit tests (Arx camera maths, cursor projection) and the config
 # differential test, in their own tree (build-tests/).
-test = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1" }
+test-unit = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1 -Suite unit" }
+test-differential = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1 -Suite differential" }
+test = { depends-on = ["test-unit", "test-differential"] }
 build-tests = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/run-tests.ps1 -BuildOnly" }
 
 # Rewrite config/CameraUnlock.ini, the committed copy of the CameraUnlock.ini the mod creates at
@@ -37,7 +39,7 @@ install = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/deploy.ps1 R
 uninstall = "scripts/uninstall.cmd /y"
 
 # Package the installer ZIP.
-package = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1", depends-on = ["build-release", "test"] }
+package = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1", depends-on = ["build-release", "test-unit"] }
 
 clean = { cmd = """
     powershell -Command "if (Test-Path build) { Remove-Item build -Recurse -Force }; if (Test-Path build-tests) { Remove-Item build-tests -Recurse -Force }; if (Test-Path bin) { Remove-Item bin -Recurse -Force }; Write-Host 'Build artifacts cleaned' -ForegroundColor Green"

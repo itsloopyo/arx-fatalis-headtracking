@@ -152,6 +152,7 @@ if(ARX_BUILD_TESTS)
         ${CMAKE_SOURCE_DIR}/tests/config_differential/lint-migrated.mjs
         $<TARGET_FILE_DIR:config_differential_tests>/migrated)
     set_tests_properties(config_lint PROPERTIES DEPENDS config_differential_tests)
+    set_tests_properties(config_differential_tests config_lint PROPERTIES LABELS differential)
 
     # The committed config against the table, a first start, the mode hotkey's saves, the field
     # of view's range and the legacy file's ANSI path. `--render-config <path>` makes it write

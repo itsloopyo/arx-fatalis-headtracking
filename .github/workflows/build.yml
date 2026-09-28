@@ -22,6 +22,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build and Validate
@@ -43,7 +47,7 @@ jobs:
 
       # Build + package through the SAME command a developer runs locally. All
       # build logic lives in the pixi task chain (setup -> build-release -> package,
-      # which also runs test); the workflow owns none, so local and CI can't drift.
+      # which also runs test-unit); the workflow owns none, so local and CI can't drift.
       - name: Build and package
         shell: pwsh
         run: |
