@@ -46,20 +46,6 @@ Import-Module (Join-Path $PSScriptRoot 'Version.psm1') -Force
 # stages exactly what Set-ModVersion writes.
 $versionFiles = Get-ModVersionPaths -ProjectRoot $projectRoot
 
-# Mirrors New-ChangelogFromCommits' insertion so a -Force maintenance entry
-# lands in the same place with the same shape.
-function Add-MaintenanceChangelogEntry {
-    param(
-        [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string]$NewVersion
-    )
-    $date = Get-Date -Format 'yyyy-MM-dd'
-    $entry = "## [$NewVersion] - $date`n`n### Changed`n`n- Maintenance release (no user-facing changes).`n`n"
-    $changelog = Get-Content -LiteralPath $Path -Raw
-    $changelog = $changelog -replace '(?s)(# Changelog.*?\n\n)', "`$1$entry"
-    Set-Content -LiteralPath $Path -Value ($changelog.TrimEnd() + "`n") -NoNewline
-}
-
 Write-Host '=== Arx Fatalis Head Tracking Release ===' -ForegroundColor Cyan
 Write-Host ''
 
@@ -155,54 +141,18 @@ Write-Host ''
 # tag was noise, so running it before any file is mutated leaves a clean tree on
 # abort instead of a half-applied version bump with no tag.
 Write-Host 'Generating CHANGELOG from commits...' -ForegroundColor Cyan
-if (-not (git -C $projectRoot tag -l 'v*')) {
-    # No tag yet, but the repo can still carry a hand-written CHANGELOG - this one does, with
-    # the whole 0.0.0 feature list in it. Overwriting would delete that and ship a four-word
-    # stub inside the release ZIP; prepending a second "First release." above it would ship
-    # an empty entry sitting on top of the real one. So RETITLE the untagged section when it
-    # is there, and only write a fresh entry when it is not.
-    #
-    # -Encoding UTF8 on both sides: CHANGELOG.md is UTF-8 and Windows PowerShell 5.1 reads
-    # and writes with the ANSI codepage unless told otherwise.
-    $date = Get-Date -Format 'yyyy-MM-dd'
-    $existing = if (Test-Path -LiteralPath $changelogPath) {
-        Get-Content -LiteralPath $changelogPath -Raw -Encoding UTF8
-    } else { '' }
-
-    if ($existing -match "\[$([regex]::Escape($Version))\]") {
-        Write-Host "CHANGELOG already has an entry for $Version; leaving it alone." -ForegroundColor Yellow
-    } elseif ($existing -match '(?m)^##\s*\[Unreleased\]') {
-        # Changes made since the dev pre-release sit under [Unreleased], above the untagged
-        # section that pre-release was built from. They are what this release publishes.
-        $updated = [regex]::Replace($existing, '(?m)^##\s*\[Unreleased\].*$', "## [$Version] - $date", 1)
-        Set-Content -LiteralPath $changelogPath -Value $updated -NoNewline -Encoding UTF8
-    } elseif ($existing -match '(?m)^##\s*\[\d+\.\d+\.\d+\]') {
-        # The first heading is the untagged section this release is publishing. Give it this
-        # version and today's date rather than burying it under a stub.
-        $updated = [regex]::Replace($existing, '(?m)^##\s*\[\d+\.\d+\.\d+\].*$',
-                                    "## [$Version] - $date", 1)
-        Set-Content -LiteralPath $changelogPath -Value $updated -NoNewline -Encoding UTF8
-    } else {
-        $entry = "## [$Version] - $date`n`nFirst release.`n"
-        $body = $existing -replace '(?s)^#\s*Changelog\s*\r?\n\r?\n', ''
-        $head = if ($body) { "# Changelog`n`n$entry`n$body" } else { "# Changelog`n`n$entry" }
-        Set-Content -LiteralPath $changelogPath -Value $head -NoNewline -Encoding UTF8
+try {
+    New-ChangelogFromCommits `
+        -ChangelogPath $changelogPath `
+        -Version $Version `
+        -ArtifactPaths @('src/', 'CMakeLists.txt', 'cameraunlock-core/', 'scripts/install.cmd', 'scripts/uninstall.cmd') `
+        -Maintenance:$Force
+} catch {
+    Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+    if (-not $Force) {
+        Write-Host 'No user-facing changes to release. Re-run with -Force for a maintenance release.' -ForegroundColor Yellow
     }
-} else {
-    try {
-        New-ChangelogFromCommits `
-            -ChangelogPath $changelogPath `
-            -Version $Version `
-            -ArtifactPaths @('src/', 'CMakeLists.txt', 'cameraunlock-core/', 'scripts/install.cmd', 'scripts/uninstall.cmd')
-    } catch {
-        if (-not $Force) {
-            Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
-            Write-Host 'No user-facing changes to release. Re-run with -Force for a maintenance release.' -ForegroundColor Yellow
-            exit 1
-        }
-        Write-Host 'No user-facing commits since last tag - writing maintenance entry (-Force).' -ForegroundColor Yellow
-        Add-MaintenanceChangelogEntry -Path $changelogPath -NewVersion $Version
-    }
+    exit 1
 }
 
 Write-Host "Updating version to $Version..." -ForegroundColor Cyan
