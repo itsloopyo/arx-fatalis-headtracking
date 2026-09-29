@@ -73,10 +73,8 @@ void TrackingRuntime::Start(const Config& cfg) {
 
     m_enabled.store(m_cfg.enable_on_startup, std::memory_order_relaxed);
     // The table reads a pair that names no mode as its defaults, so the pair always decodes.
-    const cameraunlock::TrackingMode mode =
-        cameraunlock::DecodeTrackingMode(m_cfg.rotation_enabled, m_cfg.position_enabled).value();
-    m_session.SetMode(mode);
-    m_desiredMode.store(mode, std::memory_order_relaxed);
+    m_session.SetMode(
+        cameraunlock::DecodeTrackingMode(m_cfg.rotation_enabled, m_cfg.position_enabled).value());
 
     m_receiver.SetLog([](const std::string& msg) { Log::Line("UDP: %s", msg.c_str()); });
 
@@ -99,9 +97,7 @@ void TrackingRuntime::ToggleEnabled() {
 }
 
 cameraunlock::TrackingMode TrackingRuntime::CycleTrackingMode() {
-    const cameraunlock::TrackingMode mode = static_cast<cameraunlock::TrackingMode>(
-        (static_cast<int>(m_session.GetMode()) + 1) % 3);
-    m_desiredMode.store(mode, std::memory_order_relaxed);
+    const cameraunlock::TrackingMode mode = m_session.CycleMode();
     switch (mode) {
         case cameraunlock::TrackingMode::RotationAndPosition:
             Log::Line("Tracking mode: rotation + position (6DOF)");
@@ -122,9 +118,6 @@ FrameSample TrackingRuntime::SampleFrame() {
     // skipping it on a gated frame would hand the next live frame the whole
     // gated interval as one delta.
     out.delta_time = m_clock.Tick();
-
-    const cameraunlock::TrackingMode desired = m_desiredMode.load(std::memory_order_relaxed);
-    if (desired != m_session.GetMode()) m_session.SetMode(desired);
 
     if (!m_enabled.load(std::memory_order_relaxed)) {
         ReportEmptyFrame("tracking is switched off");

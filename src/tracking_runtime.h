@@ -45,10 +45,7 @@ public:
     bool IsReceiving() const { return m_receiver.IsReceiving(); }
 
     void ToggleEnabled();
-    // Called from the hotkey thread. Picks the mode after the one the render
-    // thread last applied and leaves it for SampleFrame to apply, because
-    // SetMode resets the position processor and interpolator that Update() is
-    // running on the game thread. Returns the mode, for the caller to save.
+    // Returns the mode it moved to, for the caller to save.
     cameraunlock::TrackingMode CycleTrackingMode();
 
 private:
@@ -65,8 +62,6 @@ private:
     cameraunlock::time::FrameClock m_clock{kMaxFrameDtSec};
 
     std::atomic<bool> m_enabled{false};
-    std::atomic<cameraunlock::TrackingMode> m_desiredMode{
-        cameraunlock::TrackingMode::RotationAndPosition};
 };
 
 }  // namespace ArxHeadTracking
