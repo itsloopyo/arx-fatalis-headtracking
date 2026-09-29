@@ -142,6 +142,134 @@ struct Eerie3D {
     float x, y, z;
 };
 
+// The level and object geometry the lean clamp sweeps against. The layouts are
+// the 1.21 source's, and every offset below is the one CheckAnythingInSphere
+// (0x00429BD0 in both builds) reads: the background grid, the polygon type mask
+// and vertices, the zone list of nearby objects, their flags, position and
+// mesh, and the mesh's faces and world-space vertices.
+#pragma pack(push, 1)
+struct D3dTlVertex {
+    float sx, sy, sz, rhw;
+    uint32_t color, specular;
+    float tu, tv;
+};
+
+// EERIEPOLY. For level polygons sx/sy/sz of v[] are world coordinates.
+struct EeriePoly {
+    int32_t type;
+    Eerie3D min;
+    Eerie3D max;
+    Eerie3D norm;
+    Eerie3D norm2;
+    D3dTlVertex v[4];
+    uint8_t rest[0x18C - 0xB4];
+};
+
+// FAST_BKG_DATA, one 100x100 unit cell of the level grid.
+struct FastBkgData {
+    int8_t treat;
+    int8_t nothing;
+    int16_t nbpoly;
+    int16_t nbianchors;
+    int16_t nbpolyin;
+    int32_t flags;
+    float frustrumMinY;
+    float frustrumMaxY;
+    EeriePoly* polydata;
+    void* polyin;
+    void* ianchors;
+};
+
+constexpr int kMaxBackgroundCells = 160;
+
+// EERIE_BACKGROUND, up to the fields the grid walk needs.
+struct EerieBackground {
+    FastBkgData fastdata[kMaxBackgroundCells][kMaxBackgroundCells];
+    int32_t exist;
+    int16_t xsize;
+    int16_t zsize;
+    int16_t xdiv;
+    int16_t zdiv;
+    float xmul;
+    float zmul;
+};
+
+// EERIE_VERTEX. `v` is the world position of the current animation frame.
+struct EerieVertex {
+    D3dTlVertex vert;
+    Eerie3D v;
+    Eerie3D norm;
+    Eerie3D vworld;
+};
+
+// EERIE_FACE, up to its vertex indices.
+struct EerieFace {
+    int32_t facetype;
+    int16_t texid;
+    uint16_t vid[3];
+    uint8_t rest[0x74 - 12];
+};
+
+// EERIE_3DOBJ, the fields read.
+struct Eerie3DObj {
+    uint8_t pad0[0x22C];
+    int32_t nbvertex;
+    int32_t trueNbvertex;
+    int32_t nbfaces;
+    uint8_t pad1[0x258 - 0x238];
+    EerieVertex* vertexlist3;
+    EerieFace* facelist;
+};
+
+// INTERACTIVE_OBJ, the leading fields read.
+struct InteractiveObj {
+    uint32_t ioflags;
+    Eerie3D lastpos;
+    Eerie3D pos;
+    uint8_t pad[0xA0 - 0x1C];
+    Eerie3DObj* obj;
+};
+
+// TREATZONE_IO, one entry of the list of objects near the player.
+struct TreatzoneIo {
+    int32_t num;
+    InteractiveObj* io;
+    int32_t ioflags;
+    int32_t show;
+};
+#pragma pack(pop)
+
+static_assert(sizeof(D3dTlVertex) == 0x20, "D3DTLVERTEX");
+static_assert(offsetof(EeriePoly, v) == 0x34, "EERIEPOLY.v");
+static_assert(sizeof(EeriePoly) == 0x18C, "EERIEPOLY");
+static_assert(offsetof(FastBkgData, nbpoly) == 2, "FAST_BKG_DATA.nbpoly");
+static_assert(offsetof(FastBkgData, polydata) == 0x14, "FAST_BKG_DATA.polydata");
+static_assert(sizeof(FastBkgData) == 0x20, "FAST_BKG_DATA");
+static_assert(offsetof(EerieBackground, xsize) == 0xC8004, "EERIE_BACKGROUND.Xsize");
+static_assert(offsetof(EerieBackground, zsize) == 0xC8006, "EERIE_BACKGROUND.Zsize");
+static_assert(offsetof(EerieBackground, xmul) == 0xC800C, "EERIE_BACKGROUND.Xmul");
+static_assert(offsetof(EerieBackground, zmul) == 0xC8010, "EERIE_BACKGROUND.Zmul");
+static_assert(offsetof(EerieVertex, v) == 0x20, "EERIE_VERTEX.v");
+static_assert(sizeof(EerieVertex) == 0x44, "EERIE_VERTEX");
+static_assert(offsetof(EerieFace, vid) == 6, "EERIE_FACE.vid");
+static_assert(sizeof(EerieFace) == 0x74, "EERIE_FACE");
+static_assert(offsetof(Eerie3DObj, nbvertex) == 0x22C, "EERIE_3DOBJ.nbvertex");
+static_assert(offsetof(Eerie3DObj, nbfaces) == 0x234, "EERIE_3DOBJ.nbfaces");
+static_assert(offsetof(Eerie3DObj, vertexlist3) == 0x258, "EERIE_3DOBJ.vertexlist3");
+static_assert(offsetof(Eerie3DObj, facelist) == 0x25C, "EERIE_3DOBJ.facelist");
+static_assert(offsetof(InteractiveObj, pos) == 0x10, "INTERACTIVE_OBJ.pos");
+static_assert(offsetof(InteractiveObj, obj) == 0xA0, "INTERACTIVE_OBJ.obj");
+static_assert(sizeof(TreatzoneIo) == 0x10, "TREATZONE_IO");
+
+constexpr int32_t kPolyQuad = 0x40;     // POLY_QUAD: v[3] is used
+constexpr int32_t kPolyHide = 0x200;    // POLY_HIDE
+// POLY_TRANS | POLY_WATER | POLY_NOCOL, the polygons the game's own collision
+// lets the player walk through.
+constexpr int32_t kPolyNoCollision = 0x4 | 0x8 | 0x4000;
+constexpr uint32_t kIoNpc = 0x8;             // IO_NPC
+constexpr uint32_t kIoNoCollisions = 0x200;  // IO_NO_COLLISIONS
+constexpr int32_t kShowInScene = 1;          // SHOW_FLAG_IN_SCENE
+
 // Degrees, the unit every EERIE_CAMERA angle is in.
 constexpr float kDegToRad = 3.14159265358979323846f / 180.0f;
 

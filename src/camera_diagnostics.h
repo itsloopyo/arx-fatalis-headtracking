@@ -38,6 +38,11 @@ void ReportFrameEndProjection();
 // and whether its query is running at all.
 void ReportLeanState(const cameraunlock::camera::LeanClamp& clamp);
 
+// A once-a-second sample of the lean clamp while Diagnostics is on: the lean
+// asked for, the lean allowed, what the sweep hit and what it cost. Transitions
+// alone cannot show the clamp holding at the right distance.
+void ReportLeanSample(float requested, float allowed);
+
 // The per-second line the aim tests are decided on: the clean camera the shot
 // leaves from, the tracked camera the frame is drawn through, the world point
 // the aim cast reached, and where that point lands on screen.

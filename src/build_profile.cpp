@@ -56,6 +56,9 @@ const BuildProfile kGdkProfile_20210611 = {
     0x009A0AF0u,  // DANAECENTERX
     0x009A0AF4u,  // DANAECENTERY
     0x009A0BD4u,  // pTCCrossHair
+    0x00A08BB8u,  // ACTIVEBKG
+    0x007F02D4u,  // treatio
+    0x007F02D8u,  // TREATZONE_CUR
 };
 
 // Steam's Arx Fatalis 1.21. The image has no DYNAMIC_BASE, so these are the
@@ -96,6 +99,9 @@ const BuildProfile kSteamProfile_20200515 = {
     0x009A0AF0u,  // DANAECENTERX
     0x009A0AF4u,  // DANAECENTERY
     0x009A0BD4u,  // pTCCrossHair
+    0x00A08BB8u,  // ACTIVEBKG
+    0x007F02D4u,  // treatio
+    0x007F02D8u,  // TREATZONE_CUR
 };
 
 // Newest first: the head of this array is the diagnostic primary, the build the

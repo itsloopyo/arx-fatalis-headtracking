@@ -15,6 +15,7 @@
 #include "engine_boundary.h"
 #include "roll_math.h"
 #include "lean_trace.h"
+#include "sphere_sweep.h"
 
 #include <windows.h>
 
@@ -343,8 +344,7 @@ void TestBuildProfile() {
 // ---------------------------------------------------------------------------
 // The angle handed to the zoom scaling has to stay inside the domain that
 // scaling is single-valued on. Nothing upstream bounds it: the wire carries
-// whatever the tracker sends, and the INI sensitivity multiplying it is
-// deliberately unbounded short of kMaxSensitivity. Past 90 degrees the tangent
+// whatever the tracker sends. Past 90 degrees the tangent
 // round trip wraps, and the view snaps round to face the other way at a zoom
 // factor of exactly 1.0 - in ordinary play, with nothing zoomed.
 void TestRotationDomainClamp() {
@@ -529,8 +529,51 @@ void TestLeanQueryReportsItsOwnFailure() {
     const cameraunlock::math::Vec3 eye(0.0f, 0.0f, 0.0f);
     const cameraunlock::math::Vec3 dir(1.0f, 0.0f, 0.0f);
     const cameraunlock::camera::LeanObstruction out = LeanQuery(nullptr, eye, dir, 30.0f);
-    Check(!out.queried, "with no ray function the query reports a failure");
+    Check(!out.queried, "with no build profile the query reports a failure");
     Check(!out.blocked, "and does not pass a failure off as a clear path");
+}
+
+// ---------------------------------------------------------------------------
+// The lean sweep holds the eye a radius off anything it moves toward, from any
+// approach, including the edge of a surface the lean passes beside - which a
+// line cast along the lean never sees.
+void TestSphereSweep() {
+    using cameraunlock::math::Vec3;
+    const Vec3 origin(0.0f, 0.0f, 0.0f);
+    const Vec3 ahead(0.0f, 0.0f, 1.0f);
+    // A wall across the path at z = 100.
+    const Vec3 wa(-500.0f, -500.0f, 100.0f), wb(500.0f, -500.0f, 100.0f), wc(0.0f, 500.0f, 100.0f);
+    float t = -1.0f;
+
+    Check(SweepSphereTriangle(origin, ahead, 200.0f, 18.0f, wa, wb, wc, t),
+          "a sweep into a wall is blocked");
+    CheckNear(t, 82.0f, "and stops a radius short of it", 0.01f);
+
+    const Vec3 oblique(std::sin(60.0f * kDegToRad), 0.0f, std::cos(60.0f * kDegToRad));
+    Check(SweepSphereTriangle(origin, oblique, 400.0f, 18.0f, wa, wb, wc, t),
+          "an oblique sweep into the wall is blocked");
+    CheckNear(t, 82.0f / std::cos(60.0f * kDegToRad), "and still stops a radius off it along its normal",
+              0.01f);
+
+    Check(!SweepSphereTriangle(origin, ahead, 60.0f, 18.0f, wa, wb, wc, t),
+          "a lean that ends short of the wall is not blocked");
+
+    // A panel whose near edge runs 10 units beside the path.
+    const Vec3 ea(10.0f, -100.0f, 100.0f), eb(200.0f, -100.0f, 100.0f), ec(10.0f, 100.0f, 100.0f);
+    Check(SweepSphereTriangle(origin, ahead, 200.0f, 18.0f, ea, eb, ec, t),
+          "a sweep grazing a panel's edge is blocked");
+    CheckNear(t, 100.0f - std::sqrt(18.0f * 18.0f - 10.0f * 10.0f), "where the edge comes within the radius",
+              0.01f);
+
+    const Vec3 fa(30.0f, -100.0f, 100.0f), fb(200.0f, -100.0f, 100.0f), fc(30.0f, 100.0f, 100.0f);
+    Check(!SweepSphereTriangle(origin, ahead, 200.0f, 18.0f, fa, fb, fc, t),
+          "an edge further off the path than the radius is not");
+
+    const Vec3 close(0.0f, 0.0f, 90.0f);
+    Check(!SweepSphereTriangle(close, Vec3(0.0f, 0.0f, -1.0f), 50.0f, 18.0f, wa, wb, wc, t),
+          "an eye already inside the margin can still lean away");
+    Check(SweepSphereTriangle(close, ahead, 50.0f, 18.0f, wa, wb, wc, t) && t == 0.0f,
+          "but not any closer");
 }
 
 }  // namespace
@@ -545,6 +588,7 @@ int main() {
     TestProjectionAgreesWithForwardAtAnyOrientation();
     TestPitchStaysInsideTheEngineBand();
     TestLeanQueryReportsItsOwnFailure();
+    TestSphereSweep();
     TestForwardVector();
     TestFocalToFov();
     TestFovToFocal();

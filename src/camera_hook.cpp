@@ -116,6 +116,7 @@ void ApplyTrackedPosition(EerieCamera& subj, float zoomFactor) {
         offset[2] = allowed.z;
         g_frame.leanApplied = true;
         ReportLeanState(g_leanClamp);
+        ReportLeanSample(want.Magnitude(), allowed.Magnitude());
     }
 
     subj.pos_x = g_frame.cleanPos[0] + offset[0];
@@ -276,7 +277,11 @@ bool InstallCameraHook(const BuildProfile& profile, TrackingRuntime& tracking,
     InitAimProjection(profile);
     InitCameraDiagnostics(profile, cfg.diagnostics);
 
-    g_leanClamp.SetSettings(cfg.lean_clamp);
+    // The sweep in lean_trace.cpp is a sphere whose radius is the margin, so it
+    // already holds the eye off the surface and core must not subtract it again.
+    cameraunlock::camera::LeanClampSettings clampSettings = cfg.lean_clamp;
+    clampSettings.skin = 0.0f;
+    g_leanClamp.SetSettings(clampSettings);
 
     if (MH_Initialize() != MH_OK) {
         Log::Line("ERROR: MinHook failed to initialise");

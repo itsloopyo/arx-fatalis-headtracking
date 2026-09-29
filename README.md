@@ -261,8 +261,9 @@ PositionLimitZBack=default
 ; true: leaning stops at walls instead of moving the view through them.
 ; Only games whose mod sweeps the level for walls read this; the rest ignore it.
 CollisionEnabled=default
-; How far, in Arx units (1 unit = 1 cm), a lean holds the eye off a wall. 2 to 200.
-; It must stay above the engine's 1-unit near clip, or the wall is culled anyway.
+; How far, in Arx units (1 unit = 1 cm), a lean holds the eye off walls, doors,
+; furniture and characters. 2 to 200. It must stay above the engine's 1-unit near
+; clip, or the surface is culled anyway.
 CollisionMargin=18.0
 ; How gently the view eases back out after a wall stopped a lean.
 ; 0 is the quickest, 1 the slowest.

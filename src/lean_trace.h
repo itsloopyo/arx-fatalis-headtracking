@@ -9,15 +9,15 @@
 
 namespace ArxHeadTracking {
 
-// @p standoff is the distance core's clamp will subtract from whatever this
-// reports, in Arx units. The cast has to overreach by enough to see the surface
-// the lean is about to come to rest against, and how much that is depends on the
-// standoff, not on the lean.
-void InitLeanTrace(const BuildProfile& profile, float standoff);
+// @p radius is how far the swept eye is held off level geometry and objects, in
+// Arx units. The sweep carries the whole standoff, so core's clamp runs with a
+// skin of zero.
+void InitLeanTrace(const BuildProfile& profile, float radius);
 
-// The engine half of the lean clamp: asks Arx's own level collision whether
-// anything sits between the clean eye and where the head wants to go. Core owns
-// what to do with the answer.
+// The engine half of the lean clamp: sweeps a sphere from the clean eye toward
+// where the head wants to go, against the level polygons and the meshes of the
+// objects near the player, and reports the distance its centre can travel
+// before anything comes within the radius. Core owns what to do with the answer.
 //
 // Distances are in Arx units (centimetres), matching everything else that
 // reaches the camera struct.
@@ -26,9 +26,25 @@ cameraunlock::camera::LeanObstruction LeanQuery(void* context,
                                                 const cameraunlock::math::Vec3& direction,
                                                 float maxDistance);
 
+// What the last LeanQuery did, for the diagnostic line.
+struct LeanTraceStats {
+    bool queried = false;
+    bool blocked = false;
+    // True when an object, not the level, was the nearest contact.
+    bool object = false;
+    float distance = 0.0f;
+    unsigned polygons = 0;
+    unsigned objects = 0;
+    unsigned faces = 0;
+    unsigned triangles = 0;
+    float levelMicroseconds = 0.0f;
+    float microseconds = 0.0f;
+};
+const LeanTraceStats& LastLeanTrace();
+
 // Casts the game's own level ray along `direction` from `start`, for the aim
-// point the cursor is drawn on and for the lean clamp's query. False only when
-// the ray function is unavailable.
+// point the cursor is drawn on. False only when the ray function is
+// unavailable.
 //
 // @p rayResult is EERIELaunchRay3's own answer, which has three cases, not two:
 // positive means level geometry stopped it, zero means it reached the far end of

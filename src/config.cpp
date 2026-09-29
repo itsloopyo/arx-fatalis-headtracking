@@ -208,8 +208,9 @@ cfg::ConfigTable<Config> MakeConfigTable() {
         .Concept<Concept::CollisionEnabled>(&Config::collision_enabled)
         .Concept<Concept::CollisionMargin>([](const Config& c) { return c.lean_clamp.skin; },
                                            [](Config& c, float v) { c.lean_clamp.skin = v; })
-        .Comment("How far, in Arx units (1 unit = 1 cm), a lean holds the eye off a wall. 2 to 200.\n"
-                 "It must stay above the engine's 1-unit near clip, or the wall is culled anyway.")
+        .Comment("How far, in Arx units (1 unit = 1 cm), a lean holds the eye off walls, doors,\n"
+                 "furniture and characters. 2 to 200. It must stay above the engine's 1-unit near\n"
+                 "clip, or the surface is culled anyway.")
         .Concept<Concept::CollisionReleaseSmoothing>([](const Config& c) { return c.lean_clamp.release_smoothing; },
                                                      [](Config& c, float v) { c.lean_clamp.release_smoothing = v; })
         .Concept<Concept::ToggleKey>(&Config::toggle_key_name)

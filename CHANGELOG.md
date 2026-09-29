@@ -23,6 +23,11 @@
 - `Defaults.ini` is `%AppData%\CameraUnlock\Defaults.ini` on Windows; `$XDG_CONFIG_HOME/CameraUnlock/Defaults.ini` on Linux, or `~/.config/CameraUnlock/Defaults.ini` where `XDG_CONFIG_HOME` is not set, under Wine and Proton too; and `~/Library/Application Support/CameraUnlock/Defaults.ini` on macOS. The mod's log, where it writes one, names the file it read.
 - When the mod starts and finds no `Defaults.ini`, it creates one holding the built-in values, unless Windows runs the game as a packaged app. The mod never changes `Defaults.ini` after that.
 
+### Fixed
+
+- Leaning no longer puts the view inside doors, chests, furniture or other characters. The lean used to stop only at the level's own walls and floors.
+- Leaning past the edge of a doorway or pillar holds the view the same distance off the edge as off a flat wall, instead of letting it slide right up to it.
+
 ### Removed
 
 - `MoveCrosshair`. The cursor and the crosshair always follow your aim.

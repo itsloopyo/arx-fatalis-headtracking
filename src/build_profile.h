@@ -63,6 +63,9 @@ struct BuildProfile {
     uintptr_t addrDanaeCenterX;      // long DANAECENTERX
     uintptr_t addrDanaeCenterY;      // long DANAECENTERY
     uintptr_t addrCrosshairTexture;  // TextureContainer* pTCCrossHair
+    uintptr_t addrActiveBkg;         // EERIE_BACKGROUND* ACTIVEBKG
+    uintptr_t addrTreatZone;         // TREATZONE_IO* treatio
+    uintptr_t addrTreatZoneCount;    // long TREATZONE_CUR
 };
 
 // The profile matching the running arx.exe, or nullptr when none does. Logs the

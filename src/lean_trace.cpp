@@ -4,12 +4,20 @@
 #include "lean_trace.h"
 
 #include "arx_game.h"
+#include "engine_memory.h"
+#include "sphere_sweep.h"
 
+#include <windows.h>
+
+#include <algorithm>
+#include <cfloat>
 #include <cmath>
 
 namespace ArxHeadTracking {
 
 namespace {
+
+using cameraunlock::math::Vec3;
 
 // int EERIELaunchRay3(EERIE_3D* orgn, EERIE_3D* dest, EERIE_3D* hit, EERIEPOLY* ep, long flag)
 //
@@ -20,25 +28,143 @@ namespace {
 // its own light occlusion and its arrows.
 using LaunchRay3Fn = int(__cdecl*)(const Eerie3D*, const Eerie3D*, Eerie3D*, void*, long);
 
+const BuildProfile* g_profile = nullptr;
 LaunchRay3Fn g_launchRay3 = nullptr;
 
-// The standoff core's clamp subtracts from whatever distance this reports.
-float g_standoff = 0.0f;
+// The sweep's radius: how far the eye is held off anything, in Arx units.
+float g_radius = 0.0f;
 
-// The shallowest approach the overreach below is sized for. A ray that met a
-// surface more obliquely than this would need more travel than any fixed margin
-// covers, so the divisor is floored rather than left to run away.
-constexpr float kMinApproachCos = 0.35f;
+// Objects whose origin is further than this from the eye are skipped before
+// their faces are read. The same bound CheckAnythingInCylinder puts on the
+// objects it tests against the player.
+constexpr float kObjectReach = 1000.0f;
 
-float Length(const float v[3]) {
-    return std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+LeanTraceStats g_stats;
+
+struct Sweep {
+    Vec3 origin;
+    Vec3 dir;
+    float length;
+    float radius;
+    Vec3 boxMin;
+    Vec3 boxMax;
+    // The nearest contact so far, which also shortens the sweep for every
+    // triangle after it.
+    float hit;
+    bool blocked;
+};
+
+Vec3 ToVec(const Eerie3D& v) { return Vec3(v.x, v.y, v.z); }
+Vec3 ToVec(const D3dTlVertex& v) { return Vec3(v.sx, v.sy, v.sz); }
+
+bool BoxesOverlap(const Sweep& s, const Vec3& lo, const Vec3& hi) {
+    return lo.x <= s.boxMax.x && hi.x >= s.boxMin.x && lo.y <= s.boxMax.y &&
+           hi.y >= s.boxMin.y && lo.z <= s.boxMax.z && hi.z >= s.boxMin.z;
+}
+
+bool SweepTriangle(Sweep& s, const Vec3& a, const Vec3& b, const Vec3& c) {
+    ++g_stats.triangles;
+    float t = 0.0f;
+    if (!SweepSphereTriangle(s.origin, s.dir, s.hit, s.radius, a, b, c, t)) return false;
+    s.hit = t;
+    s.blocked = true;
+    return true;
+}
+
+// The level polygons in the grid cells the swept sphere passes over. The same
+// polygons, with the same type mask, that the game's own sphere and cylinder
+// collision uses, so the eye stops at what stops the player.
+void SweepLevel(Sweep& s, const EerieBackground& bkg) {
+    const auto cell = [](float coord, float mul, int size) {
+        const int i = static_cast<int>(std::floor(coord * mul));
+        return std::clamp(i, 0, std::min(size, kMaxBackgroundCells) - 1);
+    };
+    const int x0 = cell(s.boxMin.x, bkg.xmul, bkg.xsize);
+    const int x1 = cell(s.boxMax.x, bkg.xmul, bkg.xsize);
+    const int z0 = cell(s.boxMin.z, bkg.zmul, bkg.zsize);
+    const int z1 = cell(s.boxMax.z, bkg.zmul, bkg.zsize);
+
+    for (int x = x0; x <= x1; ++x) {
+        for (int z = z0; z <= z1; ++z) {
+            const FastBkgData& data = bkg.fastdata[x][z];
+            for (int k = 0; k < data.nbpoly; ++k) {
+                const EeriePoly& poly = data.polydata[k];
+                ++g_stats.polygons;
+                if (poly.type & kPolyNoCollision) continue;
+                if (!BoxesOverlap(s, ToVec(poly.min), ToVec(poly.max))) continue;
+                const Vec3 v0 = ToVec(poly.v[0]);
+                const Vec3 v1 = ToVec(poly.v[1]);
+                const Vec3 v2 = ToVec(poly.v[2]);
+                SweepTriangle(s, v0, v1, v2);
+                // The renderer draws a quad as the strip (0,1,2), (3,2,1).
+                if (poly.type & kPolyQuad) SweepTriangle(s, v1, ToVec(poly.v[3]), v2);
+            }
+        }
+    }
+}
+
+// The meshes of the objects near the player - doors, chests, furniture, NPCs,
+// items - in their current animation frame. The level grid does not hold them.
+//
+// The player's own object is skipped, and so is an object the game lets the
+// player walk through, which is its own rule for IO_NO_COLLISIONS on anything
+// but an NPC.
+bool SweepObjects(Sweep& s) {
+    const int32_t count = ReadLong(g_profile->addrTreatZoneCount);
+    const auto* zone = static_cast<const TreatzoneIo*>(ReadPointer(g_profile->addrTreatZone));
+    if (zone == nullptr) return false;
+
+    const float reach = kObjectReach + s.length;
+    bool hit = false;
+    for (int32_t i = 0; i < count; ++i) {
+        const TreatzoneIo& entry = zone[i];
+        if (entry.show != kShowInScene || entry.io == nullptr || entry.num == 0) continue;
+        const InteractiveObj& io = *entry.io;
+        if (io.obj == nullptr) continue;
+        if (!(io.ioflags & kIoNpc) && (io.ioflags & kIoNoCollisions)) continue;
+        if ((ToVec(io.pos) - s.origin).SqrMagnitude() > reach * reach) continue;
+
+        const Eerie3DObj& mesh = *io.obj;
+        ++g_stats.objects;
+        // The vertices are read in order, which is far cheaper than the face
+        // loop's indexed reads, and most objects in the zone are nowhere near
+        // the lean.
+        Vec3 lo(FLT_MAX, FLT_MAX, FLT_MAX);
+        Vec3 hi(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+        for (int32_t v = 0; v < mesh.nbvertex; ++v) {
+            const Eerie3D& p = mesh.vertexlist3[v].v;
+            lo = Vec3(std::min(lo.x, p.x), std::min(lo.y, p.y), std::min(lo.z, p.z));
+            hi = Vec3(std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z));
+        }
+        if (!BoxesOverlap(s, lo, hi)) continue;
+        g_stats.faces += static_cast<unsigned>(mesh.nbfaces);
+        for (int32_t f = 0; f < mesh.nbfaces; ++f) {
+            const EerieFace& face = mesh.facelist[f];
+            if (face.facetype & (kPolyHide | kPolyNoCollision)) continue;
+            const Vec3 a = ToVec(mesh.vertexlist3[face.vid[0]].v);
+            const Vec3 b = ToVec(mesh.vertexlist3[face.vid[1]].v);
+            const Vec3 c = ToVec(mesh.vertexlist3[face.vid[2]].v);
+            const Vec3 faceLo(std::min({a.x, b.x, c.x}), std::min({a.y, b.y, c.y}),
+                              std::min({a.z, b.z, c.z}));
+            const Vec3 faceHi(std::max({a.x, b.x, c.x}), std::max({a.y, b.y, c.y}),
+                              std::max({a.z, b.z, c.z}));
+            if (!BoxesOverlap(s, faceLo, faceHi)) continue;
+            hit |= SweepTriangle(s, a, b, c);
+        }
+    }
+    return hit;
 }
 
 }  // namespace
 
-void InitLeanTrace(const BuildProfile& profile, float standoff) {
+void InitLeanTrace(const BuildProfile& profile, float radius) {
+    g_profile = &profile;
     g_launchRay3 = reinterpret_cast<LaunchRay3Fn>(profile.addrLaunchRay3);
-    g_standoff = standoff;
+    g_radius = radius;
+}
+
+const LeanTraceStats& LastLeanTrace() {
+    return g_stats;
 }
 
 bool TraceAimPoint(const float start[3], const float direction[3], float maxDistance,
@@ -58,48 +184,53 @@ bool TraceAimPoint(const float start[3], const float direction[3], float maxDist
     return true;
 }
 
-cameraunlock::camera::LeanObstruction LeanQuery(void* /*context*/,
-                                                const cameraunlock::math::Vec3& start,
-                                                const cameraunlock::math::Vec3& direction,
-                                                float maxDistance) {
+cameraunlock::camera::LeanObstruction LeanQuery(void* /*context*/, const Vec3& start,
+                                                const Vec3& direction, float maxDistance) {
     cameraunlock::camera::LeanObstruction out;
-    if (!g_launchRay3) return out;
+    g_stats = LeanTraceStats{};
+    if (!g_profile) return out;
+    const auto* bkg = static_cast<const EerieBackground*>(ReadPointer(g_profile->addrActiveBkg));
+    if (bkg == nullptr) return out;
 
-    // A cast that stops where the lean stops cannot see the surface the lean is
-    // about to come to rest against: the eye would travel the whole way, arrive
-    // against the wall, and only pop back once the head pushed far enough for
-    // the ray itself to cross it. EERIELaunchRay3 is a zero-extent line, so the
-    // standoff lives in core's clamp and the cast has to overreach by the
-    // distance core is going to subtract.
-    //
-    // That extra travel is a function of the STANDOFF, not of the lean: meeting
-    // a surface at an angle needs skin/cos(approach) along the ray to buy skin
-    // along the normal. Core has already added one skin to maxDistance, so what
-    // is left to add is skin * (1/cos - 1). Scaling the whole distance instead
-    // made the margin shrink with the lean, which left the smallest margin
-    // exactly where it is needed most - a small lean into an oblique doorframe.
-    const float margin = g_standoff * (1.0f / kMinApproachCos - 1.0f);
+    LARGE_INTEGER begin;
+    QueryPerformanceCounter(&begin);
 
-    const float startPos[3] = {start.x, start.y, start.z};
-    const float dir[3] = {direction.x, direction.y, direction.z};
-    float hit[3] = {0.0f, 0.0f, 0.0f};
-    int rayResult = 0;
-    if (!TraceAimPoint(startPos, dir, maxDistance + margin, hit, rayResult)) {
-        return out;
-    }
-    // Negative is the cast running off the edge of the background grid or out of
-    // steps. That says nothing about whether anything is in the way, and core
-    // keeps `queried` separate from `blocked` precisely so it can be told apart
-    // from an open room: reported as a failure, the lean passes through and the
-    // log says the query is not answering.
-    if (rayResult < 0) return out;
+    Sweep s;
+    s.origin = start;
+    s.dir = direction;
+    s.length = maxDistance;
+    s.radius = g_radius;
+    s.hit = maxDistance;
+    s.blocked = false;
+    const Vec3 end = start + direction * maxDistance;
+    s.boxMin = Vec3(std::min(start.x, end.x) - g_radius, std::min(start.y, end.y) - g_radius,
+                    std::min(start.z, end.z) - g_radius);
+    s.boxMax = Vec3(std::max(start.x, end.x) + g_radius, std::max(start.y, end.y) + g_radius,
+                    std::max(start.z, end.z) + g_radius);
+
+    SweepLevel(s, *bkg);
+    LARGE_INTEGER afterLevel;
+    QueryPerformanceCounter(&afterLevel);
+    // The level contact has already shortened the sweep, so an object only
+    // reports a hit when it is nearer.
+    g_stats.object = SweepObjects(s);
+
+    LARGE_INTEGER finish, frequency;
+    QueryPerformanceCounter(&finish);
+    QueryPerformanceFrequency(&frequency);
+    g_stats.microseconds =
+        static_cast<float>(finish.QuadPart - begin.QuadPart) * 1.0e6f /
+        static_cast<float>(frequency.QuadPart);
+    g_stats.levelMicroseconds =
+        static_cast<float>(afterLevel.QuadPart - begin.QuadPart) * 1.0e6f /
+        static_cast<float>(frequency.QuadPart);
+    g_stats.queried = true;
+    g_stats.blocked = s.blocked;
+    g_stats.distance = s.hit;
 
     out.queried = true;
-    out.blocked = rayResult > 0;
-    if (out.blocked) {
-        const float delta[3] = {hit[0] - startPos[0], hit[1] - startPos[1], hit[2] - startPos[2]};
-        out.distance = Length(delta);
-    }
+    out.blocked = s.blocked;
+    out.distance = s.hit;
     return out;
 }
 

@@ -6,6 +6,7 @@
 #include "engine_boundary.h"
 #include "engine_memory.h"
 #include "game_state.h"
+#include "lean_trace.h"
 #include "logging.h"
 
 #include <windows.h>
@@ -172,6 +173,20 @@ void ReportLeanState(const cameraunlock::camera::LeanClamp& clamp) {
     Log::Line("Lean clamp: %s%s", what,
               s_reports == kMaxLeanStateReports
                   ? " (further lean clamp changes not logged)" : "");
+}
+
+void ReportLeanSample(float requested, float allowed) {
+    if (!g_perFrameLines) return;
+    static DWORD s_lastTick = 0;
+    if (!IntervalElapsed(s_lastTick)) return;
+
+    const LeanTraceStats& trace = LastLeanTrace();
+    Log::Line("diag lean requested=%.1f allowed=%.1f | sweep queried=%d blocked=%d by=%s "
+              "at=%.1f polygons=%u objects=%u faces=%u triangles=%u time=%.1fus (level %.1fus)",
+              requested, allowed, trace.queried ? 1 : 0, trace.blocked ? 1 : 0,
+              trace.blocked ? (trace.object ? "object" : "level") : "none", trace.distance,
+              trace.polygons, trace.objects, trace.faces, trace.triangles, trace.microseconds,
+              trace.levelMicroseconds);
 }
 
 // A reticle that has drifted shows up here as an aim point that moved when only
