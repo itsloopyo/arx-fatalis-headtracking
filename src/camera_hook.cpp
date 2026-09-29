@@ -144,6 +144,12 @@ void ApplyTrackedPose() {
     if (g_frame.sample.has_position) ApplyTrackedPosition(*subj, zoom.factor);
     BeginRenderRoll(subj->angle_g);
 
+    // The aim cast walks the level grid in 1.5-unit steps out to the far plane,
+    // so it only runs when the cursor or the diagnostic line will read it.
+    if (!CursorFollowsAim() && !g_cfg.diagnostics) {
+        ClearAimPoint();
+        return;
+    }
     const float projScale = ProjectionScale(zoom.focal, ReadLong(g_profile->addrDanaeSizY));
     const AimPoint& aim =
         ComputeAimPoint(*subj, g_frame.cleanPos, g_frame.cleanAngle, projScale);

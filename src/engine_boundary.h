@@ -31,12 +31,10 @@ struct EngineRotation {
 // and it does so at a zoom factor of exactly 1.0, so ordinary play is where it
 // would land.
 //
-// Nothing upstream bounds the angle. The wire carries whatever the tracker
-// sends, and the INI sensitivity it is multiplied by is deliberately unbounded
-// short of cameraunlock::config::kMaxSensitivity, so a 40 degree turn at a
-// sensitivity of 3 already leaves the domain. Bound it here, where the tracker's
-// convention becomes Arx's and every other conversion of the same kind lives.
-// No pose a neck produces reaches this, so nothing a player can do changes.
+// Nothing upstream bounds the angle: the wire carries whatever the tracker
+// sends, after whatever scaling the tracker's own profile applies. Bound it
+// here, where the tracker's convention becomes Arx's and every other conversion
+// of the same kind lives. No pose a neck produces at 1:1 reaches this.
 constexpr float kMaxTrackedAngleDegrees = 89.0f;
 
 inline float ClampTrackedAngle(float degrees) {

@@ -223,11 +223,10 @@ inline HorizonBasis MakeHorizonBasis(float yawDegrees) {
 //
 // This mirrors `specialEE_RTP2` - the function every level polygon and every
 // animated object goes through - and NOT the older `EE_RTP`, which nothing in
-// the shipped render path calls. The difference is the whole reason roll is
-// absent from this mod: the transform those two use reads its terms out of
-// EERIE_TRANSFORM, which carries a yaw pair and a pitch pair and no roll term at
-// all. Rolling the camera moves the handful of things still projected through
-// EE_RTP and leaves the world upright, which is worse than not rolling.
+// the shipped render path calls. Neither carries roll: EERIE_TRANSFORM has a
+// yaw pair and a pitch pair and no roll term, so roll_hook.cpp rotates the
+// projected result about the screen centre, and a caller that wants the rolled
+// position applies ViewRoll::ApplyScreen to what this returns.
 //
 // Returns false when the point is at or behind the eye plane, where there is no
 // screen position to give.

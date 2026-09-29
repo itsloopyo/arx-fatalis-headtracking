@@ -33,6 +33,7 @@ DrawBitmapFn g_origDrawBitmap = nullptr;
 
 bool g_moved = false;
 EerieS2D g_saved{0, 0};
+EerieS2D g_written{0, 0};
 
 EerieS2D* Mouse() { return reinterpret_cast<EerieS2D*>(g_profile->addrDanaeMouse); }
 
@@ -157,13 +158,19 @@ void PlaceCursorOnAimPoint() {
         g_saved = *mouse;
         g_moved = true;
     }
-    mouse->x = static_cast<int16_t>(x);
-    mouse->y = static_cast<int16_t>(y);
+    g_written.x = static_cast<int16_t>(x);
+    g_written.y = static_cast<int16_t>(y);
+    *mouse = g_written;
+}
+
+bool CursorFollowsAim() {
+    return g_installed && CursorPinnedToCentre();
 }
 
 void RestoreCursor() {
     if (!g_moved) return;
-    *Mouse() = g_saved;
+    EerieS2D* mouse = Mouse();
+    if (mouse->x == g_written.x && mouse->y == g_written.y) *mouse = g_saved;
     g_moved = false;
 }
 

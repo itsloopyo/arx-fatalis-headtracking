@@ -36,8 +36,12 @@ bool InstallCursorHook(const BuildProfile& profile);
 // through and needs the addresses of those two options to close properly.
 void PlaceCursorOnAimPoint();
 
+// Whether anything reads the aim point this frame. The cursor pin and the
+// crosshair both need free-look, so outside it the aim cast can be skipped.
+bool CursorFollowsAim();
+
 // Undoes the move at the frame boundary, so the value the game finds next frame
-// is the one it left.
+// is the one it left. A value the game wrote after the move is left standing.
 void RestoreCursor();
 
 }  // namespace ArxHeadTracking
